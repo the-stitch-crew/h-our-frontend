@@ -57,7 +57,7 @@ jobs:
       - name: 빌드 및 이미지 푸시 수행 ( Step 6의 태깅을 기반으로 도커이미지에 태깅 적용 )
         uses: docker/build-push-action@v7
         with:
-          context: ./Dockerfile
+          context: .
           push: true
           # Step 6의 with에 정의한 산출물 : tags로서 설정
           tags: ${{ steps.meta.outputs.tags }}
