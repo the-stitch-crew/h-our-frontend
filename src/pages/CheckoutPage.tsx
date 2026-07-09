@@ -1,12 +1,25 @@
 import { FormEvent, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
+import { CartItem, useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
-import { useCart } from "../context/CartContext";
 import { formatPrice } from "../data/products";
 
+type CheckoutState =
+  | {
+      mode: "product";
+      item: CartItem;
+    }
+  | {
+      mode: "cart";
+    };
+
 export default function CheckoutPage() {
-  const { items, subtotal, clearCart } = useCart();
+  const location = useLocation();
+  const checkoutState = location.state as CheckoutState | null;
+  const mode = checkoutState?.mode ?? "cart";
+  const directItem = checkoutState?.mode === "product" ? checkoutState.item : null;
+  const { items: cartItems, subtotal: cartSubtotal, clearCart } = useCart();
   const { accessToken, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [sameAsOrderer, setSameAsOrderer] = useState(true);
@@ -23,6 +36,8 @@ export default function CheckoutPage() {
     request: ""
   });
 
+  const items = directItem ? [directItem] : cartItems;
+  const subtotal = directItem ? directItem.product.price * directItem.quantity : cartSubtotal;
   const deliveryFee = subtotal > 0 ? 3500 : 0;
   const total = subtotal + deliveryFee;
 
@@ -37,7 +52,7 @@ export default function CheckoutPage() {
         <h1>Checkout</h1>
         <p>결제할 상품이 없습니다.</p>
         <Link to="/products" className="primary-button">
-          상품 둘러보기
+          상품 보러가기
         </Link>
       </div>
     );
@@ -52,6 +67,23 @@ export default function CheckoutPage() {
     });
   };
 
+  const syncServerCart = async (token: string) => {
+    const existingCart = await api.getCart(token).catch(() => null);
+
+    if (existingCart) {
+      await api.deleteCart(token, existingCart.cartId);
+    }
+
+    const nextCart = await api.createCart(token);
+
+    for (const item of items) {
+      await api.addCartProduct(token, nextCart.cartId, {
+        productId: item.product.id,
+        amount: item.quantity
+      });
+    }
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
@@ -63,24 +95,30 @@ export default function CheckoutPage() {
 
     setIsSubmitting(true);
     try {
-      const response = await api.createOrder(accessToken, {
-        requests: items.map((item) => ({
-          productName: item.product.name,
-          price: item.product.price,
-          productId: item.product.id,
-          amount: item.quantity,
-          option: item.product.option
-        })),
+      const commonPayload = {
         address: `${form.address} ${form.addressDetail}`.trim(),
         postalCode: form.postalCode,
         receiverName: form.receiverName,
         receiverPhoneNumber: form.receiverPhoneNumber,
-        phoneNumber: form.phoneNumber,
-        ordererName: form.ordererName,
         request: form.request
-      });
-      clearCart();
-      navigate("/order-complete", { state: { order: response } });
+      };
+
+      const order =
+        mode === "product" && directItem
+          ? await api.createOrderFromProduct(accessToken, {
+              productId: directItem.product.id,
+              amount: directItem.quantity,
+              option: directItem.product.option,
+              ...commonPayload
+            })
+          : await (async () => {
+              await syncServerCart(accessToken);
+              const createdOrder = await api.createOrderFromCart(accessToken, commonPayload);
+              clearCart();
+              return createdOrder;
+            })();
+
+      navigate(`/payments/orders/${order.orderNumber}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "주문 생성에 실패했습니다.");
     } finally {
@@ -126,10 +164,7 @@ export default function CheckoutPage() {
             </label>
             <label>
               이름
-              <input
-                value={form.receiverName}
-                onChange={(event) => updateField("receiverName", event.target.value)}
-              />
+              <input value={form.receiverName} onChange={(event) => updateField("receiverName", event.target.value)} />
             </label>
             <label>
               휴대폰 번호
@@ -164,7 +199,7 @@ export default function CheckoutPage() {
             <legend>결제 방식</legend>
             <label className="checkbox-row">
               <input type="radio" checked readOnly />
-              테스트 결제
+              토스 결제
             </label>
             <label className="checkbox-row">
               <input type="checkbox" required />
