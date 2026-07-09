@@ -1,12 +1,43 @@
 import { FormEvent, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { useCart } from "../context/CartContext";
+import { CartItem, useCart } from "../context/CartContext";
 import { formatPrice } from "../data/products";
 
+type ReservationCheckout = {
+  classId: string;
+  className: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  durationHours: number;
+  depositAmount: number;
+};
+
+type CheckoutState =
+  | {
+      mode: "product";
+      item: CartItem;
+      reservation?: never;
+    }
+  | {
+      mode: "cart";
+      reservation?: never;
+    }
+  | {
+      reservation: ReservationCheckout;
+      mode?: never;
+      item?: never;
+    };
+
 export default function CheckoutPage() {
-  const { items, subtotal, clearCart } = useCart();
+  const location = useLocation();
+  const checkoutState = location.state as CheckoutState | null;
+  const reservation = checkoutState && "reservation" in checkoutState ? checkoutState.reservation : null;
+  const mode = checkoutState && "mode" in checkoutState ? checkoutState.mode : "cart";
+  const directItem = checkoutState?.mode === "product" ? checkoutState.item : null;
+  const { items: cartItems, subtotal: cartSubtotal, clearCart } = useCart();
   const { accessToken, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [sameAsOrderer, setSameAsOrderer] = useState(true);
@@ -23,21 +54,27 @@ export default function CheckoutPage() {
     request: ""
   });
 
-  const deliveryFee = subtotal > 0 ? 3500 : 0;
-  const total = subtotal + deliveryFee;
+  const isReservationCheckout = Boolean(reservation);
+  const items = directItem ? [directItem] : cartItems;
+  const subtotal = directItem ? directItem.product.price * directItem.quantity : cartSubtotal;
+  const deliveryFee = isReservationCheckout ? 0 : subtotal > 0 ? 3500 : 0;
+  const total = isReservationCheckout ? reservation?.depositAmount ?? 0 : subtotal + deliveryFee;
 
   const canSubmit = useMemo(
-    () => items.length > 0 && form.ordererName && form.phoneNumber && form.postalCode && form.address,
-    [form, items.length]
+    () =>
+      isReservationCheckout
+        ? Boolean(form.ordererName && form.phoneNumber)
+        : items.length > 0 && Boolean(form.ordererName && form.phoneNumber && form.postalCode && form.address),
+    [form, isReservationCheckout, items.length]
   );
 
-  if (!items.length) {
+  if (!items.length && !reservation) {
     return (
       <div className="page empty-state">
         <h1>Checkout</h1>
         <p>결제할 상품이 없습니다.</p>
         <Link to="/products" className="primary-button">
-          상품 둘러보기
+          상품 보러가기
         </Link>
       </div>
     );
@@ -52,6 +89,23 @@ export default function CheckoutPage() {
     });
   };
 
+  const syncServerCart = async (token: string) => {
+    const existingCart = await api.getCart(token).catch(() => null);
+
+    if (existingCart) {
+      await api.deleteCart(token, existingCart.cartId);
+    }
+
+    const nextCart = await api.createCart(token);
+
+    for (const item of items) {
+      await api.addCartProduct(token, nextCart.cartId, {
+        productId: item.product.id,
+        amount: item.quantity
+      });
+    }
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
@@ -63,24 +117,54 @@ export default function CheckoutPage() {
 
     setIsSubmitting(true);
     try {
-      const response = await api.createOrder(accessToken, {
-        requests: items.map((item) => ({
-          productName: item.product.name,
-          price: item.product.price,
-          productId: item.product.id,
-          amount: item.quantity,
-          option: item.product.option
-        })),
+      if (reservation) {
+        navigate("/order-complete", {
+          state: {
+            order: {
+              orderNumber:
+                typeof crypto !== "undefined" && "randomUUID" in crypto
+                  ? crypto.randomUUID()
+                  : `reservation-${Date.now()}`,
+              totalPrice: reservation.depositAmount,
+              deliveryFee: 0,
+              address: `${reservation.date} ${reservation.startTime} ~ ${reservation.endTime}`,
+              postalCode: "",
+              receiverName: form.ordererName,
+              receiverPhoneNumber: form.phoneNumber,
+              phoneNumber: form.phoneNumber,
+              ordererName: form.ordererName,
+              orderStatus: "RESERVATION_DEPOSIT_PAID",
+              createdAt: new Date().toISOString()
+            }
+          }
+        });
+        return;
+      }
+
+      const commonPayload = {
         address: `${form.address} ${form.addressDetail}`.trim(),
         postalCode: form.postalCode,
         receiverName: form.receiverName,
         receiverPhoneNumber: form.receiverPhoneNumber,
-        phoneNumber: form.phoneNumber,
-        ordererName: form.ordererName,
         request: form.request
-      });
-      clearCart();
-      navigate("/order-complete", { state: { order: response } });
+      };
+
+      const order =
+        mode === "product" && directItem
+          ? await api.createOrderFromProduct(accessToken, {
+              productId: directItem.product.id,
+              amount: directItem.quantity,
+              option: directItem.product.option,
+              ...commonPayload
+            })
+          : await (async () => {
+              await syncServerCart(accessToken);
+              const createdOrder = await api.createOrderFromCart(accessToken, commonPayload);
+              clearCart();
+              return createdOrder;
+            })();
+
+      navigate(`/payments/orders/${order.orderNumber}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "주문 생성에 실패했습니다.");
     } finally {
@@ -90,11 +174,11 @@ export default function CheckoutPage() {
 
   return (
     <div className="page checkout-page">
-      <h1>Checkout</h1>
+      <h1>{reservation ? "예약금 결제" : "Checkout"}</h1>
       <div className="checkout-layout">
         <form className="checkout-form" onSubmit={submit}>
           <fieldset>
-            <legend>주문자 정보</legend>
+            <legend>{reservation ? "예약자 정보" : "주문자 정보"}</legend>
             <label>
               이름
               <input value={form.ordererName} onChange={(event) => updateField("ordererName", event.target.value)} />
@@ -105,66 +189,73 @@ export default function CheckoutPage() {
             </label>
           </fieldset>
 
-          <fieldset>
-            <legend>받는 사람</legend>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={sameAsOrderer}
-                onChange={(event) => {
-                  setSameAsOrderer(event.target.checked);
-                  if (event.target.checked) {
-                    setForm((current) => ({
-                      ...current,
-                      receiverName: current.ordererName,
-                      receiverPhoneNumber: current.phoneNumber
-                    }));
-                  }
-                }}
-              />
-              주문자와 동일
-            </label>
-            <label>
-              이름
-              <input
-                value={form.receiverName}
-                onChange={(event) => updateField("receiverName", event.target.value)}
-              />
-            </label>
-            <label>
-              휴대폰 번호
-              <input
-                value={form.receiverPhoneNumber}
-                onChange={(event) => updateField("receiverPhoneNumber", event.target.value)}
-              />
-            </label>
-          </fieldset>
+          {!reservation && (
+            <>
+              <fieldset>
+                <legend>받는 사람</legend>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={sameAsOrderer}
+                    onChange={(event) => {
+                      setSameAsOrderer(event.target.checked);
+                      if (event.target.checked) {
+                        setForm((current) => ({
+                          ...current,
+                          receiverName: current.ordererName,
+                          receiverPhoneNumber: current.phoneNumber
+                        }));
+                      }
+                    }}
+                  />
+                  주문자와 동일
+                </label>
+                <label>
+                  이름
+                  <input
+                    value={form.receiverName}
+                    onChange={(event) => updateField("receiverName", event.target.value)}
+                  />
+                </label>
+                <label>
+                  휴대폰 번호
+                  <input
+                    value={form.receiverPhoneNumber}
+                    onChange={(event) => updateField("receiverPhoneNumber", event.target.value)}
+                  />
+                </label>
+              </fieldset>
 
-          <fieldset>
-            <legend>배송지</legend>
-            <label>
-              우편번호
-              <input value={form.postalCode} onChange={(event) => updateField("postalCode", event.target.value)} />
-            </label>
-            <label>
-              기본주소
-              <input value={form.address} onChange={(event) => updateField("address", event.target.value)} />
-            </label>
-            <label>
-              상세주소
-              <input value={form.addressDetail} onChange={(event) => updateField("addressDetail", event.target.value)} />
-            </label>
-            <label>
-              배송 요청사항
-              <textarea value={form.request} onChange={(event) => updateField("request", event.target.value)} />
-            </label>
-          </fieldset>
+              <fieldset>
+                <legend>배송지</legend>
+                <label>
+                  우편번호
+                  <input value={form.postalCode} onChange={(event) => updateField("postalCode", event.target.value)} />
+                </label>
+                <label>
+                  기본주소
+                  <input value={form.address} onChange={(event) => updateField("address", event.target.value)} />
+                </label>
+                <label>
+                  상세주소
+                  <input
+                    value={form.addressDetail}
+                    onChange={(event) => updateField("addressDetail", event.target.value)}
+                  />
+                </label>
+                <label>
+                  배송 요청사항
+                  <textarea value={form.request} onChange={(event) => updateField("request", event.target.value)} />
+                </label>
+              </fieldset>
+            </>
+          )}
 
           <fieldset>
             <legend>결제 방식</legend>
             <label className="checkbox-row">
               <input type="radio" checked readOnly />
-              테스트 결제
+              토스 결제
             </label>
             <label className="checkbox-row">
               <input type="checkbox" required />
@@ -178,27 +269,48 @@ export default function CheckoutPage() {
 
           {error && <p className="form-error">{error}</p>}
           <button className="primary-button" type="submit" disabled={!canSubmit || isSubmitting}>
-            {isSubmitting ? "주문 생성 중" : `${formatPrice(total)} 결제하기`}
+            {isSubmitting ? "결제 준비 중" : `${formatPrice(total)} 결제하기`}
           </button>
         </form>
 
         <aside className="summary-panel">
-          <h2>상품 확인</h2>
-          {items.map((item) => (
-            <div className="summary-item" key={item.product.id}>
-              <span>{item.product.name}</span>
-              <strong>{formatPrice(item.product.price * item.quantity)}</strong>
+          <h2>{reservation ? "예약 확인" : "상품 확인"}</h2>
+          {reservation ? (
+            <div className="summary-item reservation-summary-item">
+              <span>{reservation.className}</span>
+              <strong>{reservation.durationHours}시간</strong>
             </div>
-          ))}
+          ) : (
+            items.map((item) => (
+              <div className="summary-item" key={item.product.id}>
+                <span>{item.product.name}</span>
+                <strong>{formatPrice(item.product.price * item.quantity)}</strong>
+              </div>
+            ))
+          )}
           <dl>
+            {reservation && (
+              <>
+                <div>
+                  <dt>예약 날짜</dt>
+                  <dd>{reservation.date}</dd>
+                </div>
+                <div>
+                  <dt>예약 시간</dt>
+                  <dd>{`${reservation.startTime} ~ ${reservation.endTime}`}</dd>
+                </div>
+              </>
+            )}
             <div>
-              <dt>상품 금액</dt>
-              <dd>{formatPrice(subtotal)}</dd>
+              <dt>{reservation ? "예약금" : "상품 금액"}</dt>
+              <dd>{formatPrice(reservation?.depositAmount ?? subtotal)}</dd>
             </div>
-            <div>
-              <dt>배송비</dt>
-              <dd>{formatPrice(deliveryFee)}</dd>
-            </div>
+            {!reservation && (
+              <div>
+                <dt>배송비</dt>
+                <dd>{formatPrice(deliveryFee)}</dd>
+              </div>
+            )}
             <div>
               <dt>최종 결제 금액</dt>
               <dd>{formatPrice(total)}</dd>

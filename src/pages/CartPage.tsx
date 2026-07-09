@@ -13,7 +13,7 @@ export default function CartPage() {
         <h1>Cart</h1>
         <p>장바구니에 담긴 상품이 없습니다.</p>
         <Link to="/products" className="primary-button">
-          상품 둘러보기
+          상품 보러가기
         </Link>
       </div>
     );
@@ -72,7 +72,7 @@ export default function CartPage() {
               <dd>{formatPrice(subtotal + deliveryFee)}</dd>
             </div>
           </dl>
-          <Link to="/checkout" className="primary-button">
+          <Link to="/checkout" state={{ mode: "cart" }} className="primary-button">
             결제하기
           </Link>
           <Link to="/products" className="text-link">

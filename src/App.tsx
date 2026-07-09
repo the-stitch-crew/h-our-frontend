@@ -2,8 +2,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import type { ReactElement } from "react";
 import Layout from "./components/Layout";
 import { useAuth } from "./context/AuthContext";
-import AboutPage from "./pages/AboutPage";
 import AdminPage from "./pages/AdminPage";
+import BrandPage from "./pages/BrandPage";
 import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import ClassReservationPage from "./pages/ClassReservationPage";
@@ -12,6 +12,11 @@ import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import MyPage from "./pages/MyPage";
 import OrderCompletePage from "./pages/OrderCompletePage";
+import PaymentFailPage from "./pages/PaymentFailPage";
+import PaymentPage from "./pages/PaymentPage";
+import PaymentReceiptPage from "./pages/PaymentReceiptPage";
+import PaymentSuccessPage from "./pages/PaymentSuccessPage";
+import PaymentTestLoginPage from "./pages/PaymentTestLoginPage";
 import ProductDetailPage from "./pages/ProductDetailPage";
 import ProductsPage from "./pages/ProductsPage";
 import SignupPage from "./pages/SignupPage";
@@ -38,10 +43,37 @@ export default function App() {
         <Route path="/cart" element={<CartPage />} />
         <Route path="/checkout" element={<CheckoutPage />} />
         <Route path="/order-complete" element={<OrderCompletePage />} />
+        <Route path="/payments/test-login" element={<PaymentTestLoginPage />} />
+        <Route
+          path="/payments/orders/:orderNumber"
+          element={
+            <ProtectedRoute>
+              <PaymentPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/payments/success"
+          element={
+            <ProtectedRoute>
+              <PaymentSuccessPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/payments/fail" element={<PaymentFailPage />} />
+        <Route
+          path="/payments/:paymentId/receipt"
+          element={
+            <ProtectedRoute>
+              <PaymentReceiptPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/class" element={<ClassReservationPage />} />
-        <Route path="/about" element={<AboutPage />} />
+        <Route path="/brand" element={<BrandPage />} />
+        <Route path="/about" element={<Navigate to="/brand" replace />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route
           path="/mypage"
