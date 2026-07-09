@@ -1,6 +1,9 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { API_BASE_URL } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+
+const googleOAuthUrl = `${API_BASE_URL}/oauth2/authorization/google`;
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -48,6 +51,12 @@ export default function LoginPage() {
             {isSubmitting ? "로그인 중" : "로그인"}
           </button>
         </form>
+        <div className="auth-divider">
+          <span>또는</span>
+        </div>
+        <a className="oauth-login-button" href={googleOAuthUrl}>
+          Google로 계속하기
+        </a>
         <p>
           아직 계정이 없나요? <Link to="/signup">회원가입</Link>
         </p>

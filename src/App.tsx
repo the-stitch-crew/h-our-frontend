@@ -12,6 +12,7 @@ import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import MyPage from "./pages/MyPage";
 import OrderCompletePage from "./pages/OrderCompletePage";
+import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import PaymentFailPage from "./pages/PaymentFailPage";
 import PaymentPage from "./pages/PaymentPage";
 import PaymentReceiptPage from "./pages/PaymentReceiptPage";
@@ -70,6 +71,7 @@ export default function App() {
           }
         />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/class" element={<ClassReservationPage />} />
         <Route path="/brand" element={<BrandPage />} />

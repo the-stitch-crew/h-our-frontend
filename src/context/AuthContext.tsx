@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { api, LoginResponse, SignupPayload, UserInfo } from "../api/client";
+import { api, LoginResponse, OAuthSignupPayload, SignupPayload, UserInfo } from "../api/client";
 
 const AUTH_STORAGE_KEY = "hour.auth.tokens";
 
@@ -11,6 +11,8 @@ type AuthContextValue = {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (payload: SignupPayload) => Promise<void>;
+  oauthSignup: (payload: OAuthSignupPayload) => Promise<void>;
+  completeOAuthLogin: (tokens: LoginResponse) => void;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
   updateMe: (payload: Partial<SignupPayload>) => Promise<void>;
@@ -73,6 +75,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signup: async (payload) => {
         await api.signup(payload);
         const nextTokens = await api.login(payload.email, payload.password);
+        storeTokens(nextTokens);
+        setTokens(nextTokens);
+      },
+      oauthSignup: async (payload) => {
+        const nextTokens = await api.oauthSignup(payload);
+        storeTokens(nextTokens);
+        setTokens(nextTokens);
+      },
+      completeOAuthLogin: (nextTokens) => {
         storeTokens(nextTokens);
         setTokens(nextTokens);
       },

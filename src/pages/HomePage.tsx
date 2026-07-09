@@ -1,11 +1,25 @@
 import { ArrowDown, ArrowRight, CalendarDays, MessageCircle, Scissors, ShoppingBag } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { api } from "../api/client";
 import ProductCard from "../components/ProductCard";
 import SectionHeader from "../components/SectionHeader";
-import { products } from "../data/products";
+import { mapProductSummary, Product } from "../data/products";
 
 export default function HomePage() {
-  const mainProducts = products.filter((product) => product.isMain);
+  const [products, setProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    api
+      .products(0, 8)
+      .then((page) => setProducts(page.content.map(mapProductSummary)))
+      .catch(() => setProducts([]));
+  }, []);
+
+  const mainProducts = useMemo(() => {
+    const promoted = products.filter((product) => product.isMain);
+    return (promoted.length ? promoted : products).slice(0, 4);
+  }, [products]);
 
   return (
     <>
@@ -30,9 +44,13 @@ export default function HomePage() {
           <p>아워의 결을 가장 잘 보여주는 주요 상품을 한눈에 만나보세요.</p>
         </div>
         <div className="product-grid">
-          {mainProducts.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
+          {mainProducts.length ? (
+            mainProducts.map((product) => <ProductCard key={product.id} product={product} />)
+          ) : (
+            <div className="empty-state">
+              <p>등록된 주요 상품이 없습니다.</p>
+            </div>
+          )}
         </div>
         <div className="featured-cta">
           <p>대표 제품을 둘러본 뒤, 카테고리별 전체 제품을 이어서 확인해보세요.</p>

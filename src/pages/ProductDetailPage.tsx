@@ -1,26 +1,68 @@
 import { Minus, Plus, ShoppingBag } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { api } from "../api/client";
 import ProductCard from "../components/ProductCard";
 import { useCart } from "../context/CartContext";
-import { formatPrice, products } from "../data/products";
+import { formatPrice, mapProductDetail, mapProductSummary, Product } from "../data/products";
 
 export default function ProductDetailPage() {
   const { productId } = useParams();
   const navigate = useNavigate();
   const { addItem } = useCart();
   const [quantity, setQuantity] = useState(1);
-  const product = products.find((item) => item.id === Number(productId));
+  const [product, setProduct] = useState<Product | null>(null);
+  const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const relatedProducts = useMemo(
-    () => products.filter((item) => item.category === product?.category && item.id !== product.id).slice(0, 3),
-    [product]
-  );
+  useEffect(() => {
+    const id = Number(productId);
+    if (!Number.isFinite(id)) {
+      setProduct(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setError("");
+    setQuantity(1);
+
+    api
+      .product(id)
+      .then((data) => {
+        const nextProduct = mapProductDetail(data);
+        setProduct(nextProduct);
+
+        return api.products(0, 4, nextProduct.category).then((page) => {
+          setRelatedProducts(
+            page.content
+              .map(mapProductSummary)
+              .filter((item) => item.id !== nextProduct.id)
+              .slice(0, 3)
+          );
+        });
+      })
+      .catch((caught) => {
+        setProduct(null);
+        setRelatedProducts([]);
+        setError(caught instanceof Error ? caught.message : "상품을 불러오지 못했습니다.");
+      })
+      .finally(() => setIsLoading(false));
+  }, [productId]);
+
+  if (isLoading) {
+    return (
+      <div className="page empty-state">
+        <p>상품을 불러오는 중입니다.</p>
+      </div>
+    );
+  }
 
   if (!product) {
     return (
       <div className="page empty-state">
-        <p>상품을 찾을 수 없습니다.</p>
+        <p>{error || "상품을 찾을 수 없습니다."}</p>
         <Link to="/products" className="outline-button">
           상품 목록으로
         </Link>

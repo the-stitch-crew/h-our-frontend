@@ -1,5 +1,4 @@
 import {
-  AlertTriangle,
   BarChart3,
   CheckCircle2,
   ClipboardList,
@@ -18,34 +17,18 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, CategoryResponse } from "../api/client";
+import {
+  AdminDashboardResponse,
+  AdminOrderSearchResponse,
+  AdminUserSearchResponse,
+  api,
+  CategoryResponse
+} from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { formatPrice, products } from "../data/products";
+import { formatPrice, mapProductSummary, Product } from "../data/products";
 
 type AdminSection = "dashboard" | "orders" | "products" | "members" | "categories";
-type OrderStatus = "결제완료" | "제작중" | "배송준비" | "배송완료" | "취소요청";
-type MemberGrade = "VIP" | "일반" | "휴면관리";
-
-type AdminOrder = {
-  id: string;
-  customer: string;
-  productId: number;
-  productName: string;
-  quantity: number;
-  total: number;
-  status: OrderStatus;
-  orderedAt: string;
-};
-
-type AdminMember = {
-  id: number;
-  name: string;
-  email: string;
-  grade: MemberGrade;
-  orderCount: number;
-  totalSpent: number;
-  joinedAt: string;
-};
+type OrderStatus = "PURCHASED" | "IN_DELIVERY" | "DELIVERED" | "COMPLETE" | "CANCELED";
 
 type MetricCard = {
   label: string;
@@ -64,110 +47,22 @@ const adminSections: { id: AdminSection; label: string; icon: LucideIcon }[] = [
   { id: "categories", label: "카테고리 관리", icon: Tags }
 ];
 
-const mockOrders: AdminOrder[] = [
-  {
-    id: "H20260709014",
-    customer: "김하린",
-    productId: 1,
-    productName: "Gourd Bag (M)",
-    quantity: 1,
-    total: 368000,
-    status: "제작중",
-    orderedAt: "2026-07-09 10:24"
-  },
-  {
-    id: "H20260709013",
-    customer: "이서윤",
-    productId: 4,
-    productName: "Folding Card Wallet",
-    quantity: 2,
-    total: 260000,
-    status: "배송준비",
-    orderedAt: "2026-07-09 09:41"
-  },
-  {
-    id: "H20260708027",
-    customer: "박민재",
-    productId: 2,
-    productName: "Gourd Bag (S)",
-    quantity: 1,
-    total: 219000,
-    status: "결제완료",
-    orderedAt: "2026-07-08 18:05"
-  },
-  {
-    id: "H20260708019",
-    customer: "최유진",
-    productId: 6,
-    productName: "Bando Key Ring",
-    quantity: 4,
-    total: 60000,
-    status: "배송완료",
-    orderedAt: "2026-07-08 13:22"
-  },
-  {
-    id: "H20260707031",
-    customer: "정도현",
-    productId: 3,
-    productName: "Bucket Bag - Brown",
-    quantity: 1,
-    total: 219000,
-    status: "취소요청",
-    orderedAt: "2026-07-07 16:37"
-  },
-  {
-    id: "H20260707018",
-    customer: "오지안",
-    productId: 5,
-    productName: "Flat Card Case (M)",
-    quantity: 3,
-    total: 204000,
-    status: "배송완료",
-    orderedAt: "2026-07-07 11:12"
-  }
-];
-
-const mockMembers: AdminMember[] = [
-  {
-    id: 101,
-    name: "김하린",
-    email: "harin@example.com",
-    grade: "VIP",
-    orderCount: 8,
-    totalSpent: 1286000,
-    joinedAt: "2026-03-18"
-  },
-  {
-    id: 102,
-    name: "이서윤",
-    email: "seoyoon@example.com",
-    grade: "일반",
-    orderCount: 3,
-    totalSpent: 421000,
-    joinedAt: "2026-04-02"
-  },
-  {
-    id: 103,
-    name: "박민재",
-    email: "minjae@example.com",
-    grade: "일반",
-    orderCount: 2,
-    totalSpent: 287000,
-    joinedAt: "2026-05-21"
-  },
-  {
-    id: 104,
-    name: "최유진",
-    email: "yujin@example.com",
-    grade: "휴면관리",
-    orderCount: 1,
-    totalSpent: 60000,
-    joinedAt: "2026-01-12"
-  }
-];
-
-const statusOrder: OrderStatus[] = ["결제완료", "제작중", "배송준비", "배송완료", "취소요청"];
+const statusOrder: OrderStatus[] = ["PURCHASED", "IN_DELIVERY", "DELIVERED", "COMPLETE", "CANCELED"];
 const numberFormatter = new Intl.NumberFormat("ko-KR");
+
+const statusLabels: Record<string, string> = {
+  PURCHASED: "결제완료",
+  IN_DELIVERY: "배송중",
+  DELIVERED: "배송완료",
+  COMPLETE: "구매확정",
+  CANCELED: "취소"
+};
+
+const formatDateTime = (value: string) =>
+  new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
 
 const scrollToSection = (section: AdminSection) => {
   document.getElementById(`admin-${section}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -177,6 +72,10 @@ export default function AdminPage() {
   const { accessToken } = useAuth();
   const [activeSection, setActiveSection] = useState<AdminSection>("dashboard");
   const [categories, setCategories] = useState<CategoryResponse[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [adminDashboard, setAdminDashboard] = useState<AdminDashboardResponse | null>(null);
+  const [orders, setOrders] = useState<AdminOrderSearchResponse[]>([]);
+  const [members, setMembers] = useState<AdminUserSearchResponse[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [form, setForm] = useState({ name: "", thumbnail: "" });
@@ -190,37 +89,57 @@ export default function AdminPage() {
       .catch(() => setCategories([]));
   };
 
+  const loadProducts = () => {
+    api
+      .products(0, 100)
+      .then((page) => setProducts(page.content.map(mapProductSummary)))
+      .catch(() => setProducts([]));
+  };
+
+  const loadAdminData = () => {
+    if (!accessToken) {
+      setAdminDashboard(null);
+      setOrders([]);
+      setMembers([]);
+      return;
+    }
+
+    api
+      .adminDashboard(accessToken)
+      .then(setAdminDashboard)
+      .catch(() => setAdminDashboard(null));
+    api
+      .adminOrders(accessToken, 0, 20)
+      .then((page) => setOrders(page.content))
+      .catch(() => setOrders([]));
+    api
+      .adminUsers(accessToken, 0, 20)
+      .then((page) => setMembers(page.content))
+      .catch(() => setMembers([]));
+  };
+
   useEffect(loadCategories, []);
+  useEffect(loadProducts, []);
+  useEffect(loadAdminData, [accessToken]);
 
   const dashboard = useMemo(() => {
-    const totalSales = mockOrders.reduce((sum, order) => sum + order.total, 0);
-    const pendingOrders = mockOrders.filter((order) => order.status !== "배송완료" && order.status !== "취소요청").length;
-    const lowStockProducts = products.filter((product) => product.stock > 0 && product.stock <= 6).length;
+    const totalSales = adminDashboard?.totalSales ?? 0;
+    const pendingOrders = (adminDashboard?.paidOrderCount ?? 0) + (adminDashboard?.inDeliveryOrderCount ?? 0);
     const soldOutProducts = products.filter((product) => product.status === "SOLD_OUT").length;
-    const vipMembers = mockMembers.filter((member) => member.grade === "VIP").length;
-    const averageOrderValue = totalSales / mockOrders.length;
+    const adminMembers = members.filter((member) => member.role === "ADMIN").length;
+    const averageOrderValue = orders.length ? totalSales / orders.length : 0;
 
-    const popularProducts = products
-      .map((product) => {
-        const relatedOrders = mockOrders.filter((order) => order.productId === product.id);
-        const soldQuantity = relatedOrders.reduce((sum, order) => sum + order.quantity, 0);
-        const sales = relatedOrders.reduce((sum, order) => sum + order.total, 0);
-        return { ...product, soldQuantity, sales };
-      })
-      .filter((product) => product.soldQuantity > 0)
-      .sort((a, b) => b.soldQuantity - a.soldQuantity || b.sales - a.sales)
-      .slice(0, 4);
+    const popularProducts = adminDashboard?.topProducts ?? [];
 
     return {
       totalSales,
       pendingOrders,
-      lowStockProducts,
       soldOutProducts,
-      vipMembers,
+      adminMembers,
       averageOrderValue,
       popularProducts
     };
-  }, []);
+  }, [adminDashboard, members, orders.length, products]);
 
   const metrics: MetricCard[] = [
     {
@@ -233,25 +152,25 @@ export default function AdminPage() {
     },
     {
       label: "주문 지표",
-      value: `${numberFormatter.format(mockOrders.length)}건`,
+      value: `${numberFormatter.format(adminDashboard?.todayOrderCount ?? orders.length)}건`,
       delta: `${dashboard.pendingOrders}건 처리 필요`,
-      helper: "결제완료, 제작중, 배송준비 기준",
+      helper: "결제완료, 배송중 기준",
       icon: ReceiptText,
       tone: "blue"
     },
     {
       label: "회원 지표",
-      value: `${numberFormatter.format(mockMembers.length)}명`,
-      delta: `VIP ${dashboard.vipMembers}명`,
-      helper: "최근 가입 및 구매 회원 포함",
+      value: `${numberFormatter.format(adminDashboard?.totalUserCount ?? members.length)}명`,
+      delta: `오늘 가입 ${numberFormatter.format(adminDashboard?.todayUserCount ?? 0)}명`,
+      helper: `관리자 ${dashboard.adminMembers}명`,
       icon: UserCheck,
       tone: "clay"
     },
     {
       label: "상품 지표",
-      value: `${numberFormatter.format(products.length)}개`,
-      delta: `품절 ${dashboard.soldOutProducts}개`,
-      helper: `재고 주의 ${dashboard.lowStockProducts}개`,
+      value: `${numberFormatter.format(adminDashboard?.activeProductCount ?? products.length)}개`,
+      delta: `품절 ${adminDashboard?.soldOutProductCount ?? dashboard.soldOutProducts}개`,
+      helper: "DB 상품 목록 기준",
       icon: ShoppingBag,
       tone: "ink"
     }
@@ -373,7 +292,7 @@ export default function AdminPage() {
           <section className="plain-panel admin-panel" aria-labelledby="recent-orders-title">
             <div className="admin-panel-title">
               <h2 id="recent-orders-title">최근 주문</h2>
-              <span>{mockOrders.length}건</span>
+              <span>{adminDashboard?.recentOrders.length ?? orders.length}건</span>
             </div>
             <div className="admin-table-wrap">
               <table className="admin-table">
@@ -381,23 +300,23 @@ export default function AdminPage() {
                   <tr>
                     <th>주문번호</th>
                     <th>고객</th>
-                    <th>상품</th>
                     <th>금액</th>
                     <th>상태</th>
+                    <th>주문일</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {mockOrders.slice(0, 5).map((order) => (
-                    <tr key={order.id}>
-                      <td>{order.id}</td>
-                      <td>{order.customer}</td>
-                      <td>{order.productName}</td>
-                      <td>{formatPrice(order.total)}</td>
+                  {(adminDashboard?.recentOrders ?? orders.slice(0, 5)).map((order) => (
+                    <tr key={order.orderNumber}>
+                      <td>{order.orderNumber}</td>
+                      <td>{order.ordererName}</td>
+                      <td>{formatPrice(order.totalPrice)}</td>
                       <td>
-                        <span className={`status-badge ${order.status === "취소요청" ? "danger" : ""}`}>
-                          {order.status}
+                        <span className={`status-badge ${order.orderStatus === "CANCELED" ? "danger" : ""}`}>
+                          {statusLabels[order.orderStatus] ?? order.orderStatus}
                         </span>
                       </td>
+                      <td>{formatDateTime(order.createdAt)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -412,13 +331,13 @@ export default function AdminPage() {
             </div>
             <div className="popular-product-list">
               {dashboard.popularProducts.map((product, index) => (
-                <article key={product.id}>
+                <article key={product.productId}>
                   <strong>{index + 1}</strong>
-                  <img src={product.thumbnail} alt={product.name} />
+                  <img src={product.thumbnail || "/assets/hour-studio-hero.png"} alt={product.name} />
                   <div>
                     <b>{product.name}</b>
                     <small>
-                      {product.soldQuantity}개 판매 · {formatPrice(product.sales)}
+                      {numberFormatter.format(product.totalQuantity)}개 판매 · {formatPrice(product.totalSales)}
                     </small>
                   </div>
                 </article>
@@ -435,10 +354,10 @@ export default function AdminPage() {
         </div>
         <div className="order-status-grid">
           {statusOrder.map((status) => {
-            const count = mockOrders.filter((order) => order.status === status).length;
+            const count = orders.filter((order) => order.orderStatus === status).length;
             return (
               <article key={status}>
-                <span>{status}</span>
+                <span>{statusLabels[status]}</span>
                 <strong>{count}</strong>
               </article>
             );
@@ -459,21 +378,23 @@ export default function AdminPage() {
                   <th>주문일</th>
                   <th>주문번호</th>
                   <th>고객</th>
-                  <th>수량</th>
+                  <th>연락처</th>
+                  <th>금액</th>
                   <th>상태</th>
                   <th>관리</th>
                 </tr>
               </thead>
               <tbody>
-                {mockOrders.map((order) => (
-                  <tr key={order.id}>
-                    <td>{order.orderedAt}</td>
-                    <td>{order.id}</td>
-                    <td>{order.customer}</td>
-                    <td>{order.quantity}</td>
+                {orders.map((order) => (
+                  <tr key={order.orderNumber}>
+                    <td>{formatDateTime(order.createdAt)}</td>
+                    <td>{order.orderNumber}</td>
+                    <td>{order.ordererName}</td>
+                    <td>{order.phoneNumber}</td>
+                    <td>{formatPrice(order.totalPrice)}</td>
                     <td>
-                      <span className={`status-badge ${order.status === "취소요청" ? "danger" : ""}`}>
-                        {order.status}
+                      <span className={`status-badge ${order.orderStatus === "CANCELED" ? "danger" : ""}`}>
+                        {statusLabels[order.orderStatus] ?? order.orderStatus}
                       </span>
                     </td>
                     <td>
@@ -496,7 +417,7 @@ export default function AdminPage() {
         </div>
         <section className="plain-panel admin-panel">
           <div className="admin-panel-title">
-            <h2>상품 재고 및 노출</h2>
+            <h2>상품 판매 및 노출</h2>
             <button className="primary-button" type="button">
               <Plus size={18} />
               상품 등록
@@ -509,7 +430,8 @@ export default function AdminPage() {
                   <th>상품</th>
                   <th>카테고리</th>
                   <th>가격</th>
-                  <th>재고</th>
+                  <th>판매수</th>
+                  <th>조회수</th>
                   <th>상태</th>
                   <th>메인</th>
                   <th>관리</th>
@@ -526,10 +448,8 @@ export default function AdminPage() {
                     </td>
                     <td>{product.category}</td>
                     <td>{formatPrice(product.price)}</td>
-                    <td className={product.stock <= 6 ? "stock-warning" : ""}>
-                      {product.stock <= 6 && product.stock > 0 && <AlertTriangle size={15} />}
-                      {product.stock}
-                    </td>
+                    <td>{numberFormatter.format(product.salesCount ?? 0)}</td>
+                    <td>{numberFormatter.format(product.viewCount ?? 0)}</td>
                     <td>
                       <span className={`status-badge ${product.status === "SOLD_OUT" ? "danger" : ""}`}>
                         {product.status === "SOLD_OUT" ? "품절" : "판매중"}
@@ -556,8 +476,8 @@ export default function AdminPage() {
         </div>
         <section className="plain-panel admin-panel">
           <div className="admin-panel-title">
-            <h2>회원 구매 요약</h2>
-            <span>관리 대상 {mockMembers.filter((member) => member.grade === "휴면관리").length}명</span>
+            <h2>회원 계정 요약</h2>
+            <span>블랙리스트 {members.filter((member) => member.blacklisted).length}명</span>
           </div>
           <div className="admin-table-wrap">
             <table className="admin-table">
@@ -565,25 +485,25 @@ export default function AdminPage() {
                 <tr>
                   <th>회원</th>
                   <th>이메일</th>
-                  <th>등급</th>
-                  <th>주문</th>
-                  <th>누적 구매</th>
+                  <th>권한</th>
+                  <th>성별</th>
+                  <th>국적</th>
                   <th>가입일</th>
                 </tr>
               </thead>
               <tbody>
-                {mockMembers.map((member) => (
-                  <tr key={member.id}>
-                    <td>{member.name}</td>
+                {members.map((member) => (
+                  <tr key={member.userId}>
+                    <td>{member.userName}</td>
                     <td>{member.email}</td>
                     <td>
-                      <span className={`status-badge ${member.grade === "휴면관리" ? "muted" : ""}`}>
-                        {member.grade}
+                      <span className={`status-badge ${member.blacklisted ? "muted" : ""}`}>
+                        {member.blacklisted ? "BLACKLIST" : member.role}
                       </span>
                     </td>
-                    <td>{member.orderCount}건</td>
-                    <td>{formatPrice(member.totalSpent)}</td>
-                    <td>{member.joinedAt}</td>
+                    <td>{member.gender}</td>
+                    <td>{member.nationality}</td>
+                    <td>{formatDateTime(member.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>

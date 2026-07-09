@@ -1,6 +1,6 @@
-import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Gender } from "../api/client";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { api, Gender } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
 type SignupForm = {
@@ -50,11 +50,15 @@ function getBirthDate(year: string, month: string, day: string) {
 
 export default function SignupPage() {
   const navigate = useNavigate();
-  const { signup } = useAuth();
+  const [searchParams] = useSearchParams();
+  const signupToken = searchParams.get("signupToken")?.trim() ?? "";
+  const isOAuthSignup = signupToken.length > 0;
+  const { oauthSignup, signup } = useAuth();
   const monthInputRef = useRef<HTMLInputElement>(null);
   const dayInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingOAuthInfo, setIsLoadingOAuthInfo] = useState(false);
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [birthDateParts, setBirthDateParts] = useState({
     year: "",
@@ -81,6 +85,41 @@ export default function SignupPage() {
   const isPasswordConfirmEntered = passwordConfirm.length > 0;
   const isPasswordMatched = form.password === passwordConfirm;
   const isPhoneValid = phonePattern.test(form.phoneNumber);
+
+  useEffect(() => {
+    if (!isOAuthSignup) {
+      return;
+    }
+
+    let isActive = true;
+    setError("");
+    setIsLoadingOAuthInfo(true);
+
+    api.oauthSignupInfo(signupToken)
+      .then((info) => {
+        if (!isActive) return;
+        setForm((current) => ({
+          ...current,
+          userName: info.userName,
+          email: info.email,
+          password: ""
+        }));
+        setPasswordConfirm("");
+      })
+      .catch((caught) => {
+        if (!isActive) return;
+        setError(caught instanceof Error ? caught.message : "OAuth 회원 정보를 불러오지 못했습니다.");
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingOAuthInfo(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [isOAuthSignup, signupToken]);
 
   const birthDateError = useMemo(() => {
     const hasBirthDateInput = birthDateParts.year || birthDateParts.month || birthDateParts.day;
@@ -135,12 +174,12 @@ export default function SignupPage() {
       return;
     }
 
-    if (!isPasswordLongEnough) {
+    if (!isOAuthSignup && !isPasswordLongEnough) {
       setError("비밀번호는 최소 8자 이상이어야 합니다.");
       return;
     }
 
-    if (!isPasswordMatched) {
+    if (!isOAuthSignup && !isPasswordMatched) {
       setError("비밀번호 확인이 일치하지 않습니다.");
       return;
     }
@@ -162,7 +201,17 @@ export default function SignupPage() {
 
     setIsSubmitting(true);
     try {
-      await signup({ ...form, gender: form.gender });
+      if (isOAuthSignup) {
+        await oauthSignup({
+          signupToken,
+          birthDate: form.birthDate,
+          gender: form.gender,
+          phoneNumber: form.phoneNumber,
+          nationality: form.nationality
+        });
+      } else {
+        await signup({ ...form, gender: form.gender });
+      }
       navigate("/mypage");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "회원가입에 실패했습니다.");
@@ -180,18 +229,22 @@ export default function SignupPage() {
           <label>
             이름
             <input
+              className={isOAuthSignup && form.userName ? "locked-oauth-field" : undefined}
               value={form.userName}
               onChange={(event) => setForm({ ...form, userName: event.target.value })}
+              disabled={isOAuthSignup}
               required
             />
           </label>
           <label>
             이메일
             <input
+              className={isOAuthSignup && form.email ? "locked-oauth-field" : undefined}
               type="email"
               value={form.email}
               onChange={(event) => setForm({ ...form, email: event.target.value })}
               aria-describedby="email-feedback"
+              disabled={isOAuthSignup}
               required
             />
             {isEmailEntered && (
@@ -203,44 +256,48 @@ export default function SignupPage() {
               </span>
             )}
           </label>
-          <label>
-            비밀번호
-            <input
-              type="password"
-              minLength={8}
-              value={form.password}
-              onChange={(event) => setForm({ ...form, password: event.target.value })}
-              aria-describedby="password-feedback"
-              required
-            />
-            {isPasswordEntered && (
-              <span
-                id="password-feedback"
-                className={`field-feedback ${isPasswordLongEnough ? "valid" : "invalid"}`}
-              >
-                8자 이상 입력해주세요. 현재 {form.password.length}자
-              </span>
-            )}
-          </label>
-          <label>
-            비밀번호 확인
-            <input
-              type="password"
-              minLength={8}
-              value={passwordConfirm}
-              onChange={(event) => setPasswordConfirm(event.target.value)}
-              aria-describedby="password-confirm-feedback"
-              required
-            />
-            {isPasswordConfirmEntered && (
-              <span
-                id="password-confirm-feedback"
-                className={`field-feedback ${isPasswordMatched ? "valid" : "invalid"}`}
-              >
-                {isPasswordMatched ? "비밀번호가 일치합니다." : "비밀번호가 일치하지 않습니다."}
-              </span>
-            )}
-          </label>
+          {!isOAuthSignup && (
+            <>
+              <label>
+                비밀번호
+                <input
+                  type="password"
+                  minLength={8}
+                  value={form.password}
+                  onChange={(event) => setForm({ ...form, password: event.target.value })}
+                  aria-describedby="password-feedback"
+                  required
+                />
+                {isPasswordEntered && (
+                  <span
+                    id="password-feedback"
+                    className={`field-feedback ${isPasswordLongEnough ? "valid" : "invalid"}`}
+                  >
+                    8자 이상 입력해주세요. 현재 {form.password.length}자
+                  </span>
+                )}
+              </label>
+              <label>
+                비밀번호 확인
+                <input
+                  type="password"
+                  minLength={8}
+                  value={passwordConfirm}
+                  onChange={(event) => setPasswordConfirm(event.target.value)}
+                  aria-describedby="password-confirm-feedback"
+                  required
+                />
+                {isPasswordConfirmEntered && (
+                  <span
+                    id="password-confirm-feedback"
+                    className={`field-feedback ${isPasswordMatched ? "valid" : "invalid"}`}
+                  >
+                    {isPasswordMatched ? "비밀번호가 일치합니다." : "비밀번호가 일치하지 않습니다."}
+                  </span>
+                )}
+              </label>
+            </>
+          )}
           <label>
             생년월일
             <div className="birth-date-fields">
@@ -310,7 +367,7 @@ export default function SignupPage() {
             />
           </label>
           {error && <p className="form-error">{error}</p>}
-          <button className="primary-button" type="submit" disabled={isSubmitting}>
+          <button className="primary-button" type="submit" disabled={isSubmitting || isLoadingOAuthInfo}>
             {isSubmitting ? "가입 중" : "가입하기"}
           </button>
         </form>
