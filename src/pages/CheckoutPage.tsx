@@ -2,7 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { useCart } from "../context/CartContext";
+import { CartItem, useCart } from "../context/CartContext";
 import { formatPrice } from "../data/products";
 
 type ReservationCheckout = {
@@ -15,12 +15,31 @@ type ReservationCheckout = {
   depositAmount: number;
 };
 
+type CheckoutState =
+  | {
+      mode: "product";
+      item: CartItem;
+      reservation?: never;
+    }
+  | {
+      mode: "cart";
+      reservation?: never;
+    }
+  | {
+      reservation: ReservationCheckout;
+      mode?: never;
+      item?: never;
+    };
+
 export default function CheckoutPage() {
-  const { items, subtotal, clearCart } = useCart();
+  const location = useLocation();
+  const checkoutState = location.state as CheckoutState | null;
+  const reservation = checkoutState && "reservation" in checkoutState ? checkoutState.reservation : null;
+  const mode = checkoutState && "mode" in checkoutState ? checkoutState.mode : "cart";
+  const directItem = checkoutState?.mode === "product" ? checkoutState.item : null;
+  const { items: cartItems, subtotal: cartSubtotal, clearCart } = useCart();
   const { accessToken, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-  const reservation = (location.state as { reservation?: ReservationCheckout } | null)?.reservation;
   const [sameAsOrderer, setSameAsOrderer] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -36,6 +55,8 @@ export default function CheckoutPage() {
   });
 
   const isReservationCheckout = Boolean(reservation);
+  const items = directItem ? [directItem] : cartItems;
+  const subtotal = directItem ? directItem.product.price * directItem.quantity : cartSubtotal;
   const deliveryFee = isReservationCheckout ? 0 : subtotal > 0 ? 3500 : 0;
   const total = isReservationCheckout ? reservation?.depositAmount ?? 0 : subtotal + deliveryFee;
 
@@ -53,7 +74,7 @@ export default function CheckoutPage() {
         <h1>Checkout</h1>
         <p>결제할 상품이 없습니다.</p>
         <Link to="/products" className="primary-button">
-          상품 둘러보기
+          상품 보러가기
         </Link>
       </div>
     );
@@ -66,6 +87,23 @@ export default function CheckoutPage() {
       if (sameAsOrderer && name === "phoneNumber") next.receiverPhoneNumber = value;
       return next;
     });
+  };
+
+  const syncServerCart = async (token: string) => {
+    const existingCart = await api.getCart(token).catch(() => null);
+
+    if (existingCart) {
+      await api.deleteCart(token, existingCart.cartId);
+    }
+
+    const nextCart = await api.createCart(token);
+
+    for (const item of items) {
+      await api.addCartProduct(token, nextCart.cartId, {
+        productId: item.product.id,
+        amount: item.quantity
+      });
+    }
   };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -103,24 +141,30 @@ export default function CheckoutPage() {
         return;
       }
 
-      const response = await api.createOrder(accessToken, {
-        requests: items.map((item) => ({
-          productName: item.product.name,
-          price: item.product.price,
-          productId: item.product.id,
-          amount: item.quantity,
-          option: item.product.option
-        })),
+      const commonPayload = {
         address: `${form.address} ${form.addressDetail}`.trim(),
         postalCode: form.postalCode,
         receiverName: form.receiverName,
         receiverPhoneNumber: form.receiverPhoneNumber,
-        phoneNumber: form.phoneNumber,
-        ordererName: form.ordererName,
         request: form.request
-      });
-      clearCart();
-      navigate("/order-complete", { state: { order: response } });
+      };
+
+      const order =
+        mode === "product" && directItem
+          ? await api.createOrderFromProduct(accessToken, {
+              productId: directItem.product.id,
+              amount: directItem.quantity,
+              option: directItem.product.option,
+              ...commonPayload
+            })
+          : await (async () => {
+              await syncServerCart(accessToken);
+              const createdOrder = await api.createOrderFromCart(accessToken, commonPayload);
+              clearCart();
+              return createdOrder;
+            })();
+
+      navigate(`/payments/orders/${order.orderNumber}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "주문 생성에 실패했습니다.");
     } finally {
@@ -211,7 +255,7 @@ export default function CheckoutPage() {
             <legend>결제 방식</legend>
             <label className="checkbox-row">
               <input type="radio" checked readOnly />
-              테스트 결제
+              토스 결제
             </label>
             <label className="checkbox-row">
               <input type="checkbox" required />

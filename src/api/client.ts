@@ -1,10 +1,23 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+export { API_BASE_URL };
 
 export type ApiEnvelope<T> = {
   success: boolean;
   code: string;
   message: string;
   data: T;
+};
+
+export type PageResponse<T> = {
+  content: T[];
+  empty: boolean;
+  first: boolean;
+  last: boolean;
+  number: number;
+  numberOfElements: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 };
 
 export type LoginResponse = {
@@ -60,22 +73,22 @@ export type AddressPayload = {
   isMain?: boolean;
 };
 
-export type OrderProductPayload = {
-  productName: string;
-  price: number;
+export type OrderCreateFromProductPayload = {
   productId: number;
   amount: number;
   option: string;
-};
-
-export type OrderCreatePayload = {
-  requests: OrderProductPayload[];
   address: string;
   postalCode: string;
   receiverName: string;
-  phoneNumber: string;
   request?: string;
-  ordererName: string;
+  receiverPhoneNumber: string;
+};
+
+export type OrderCreateFromCartPayload = {
+  address: string;
+  postalCode: string;
+  receiverName: string;
+  request?: string;
   receiverPhoneNumber: string;
 };
 
@@ -91,6 +104,61 @@ export type OrderCreateResponse = {
   ordererName: string;
   orderStatus: string;
   createdAt: string;
+};
+
+export type OrderSearchResponse = {
+  orderNumber: string;
+  totalPrice: number;
+  orderStatus: string;
+};
+
+export type OrderProductDetailResponse = {
+  name: string;
+  amount: number;
+  price: number;
+  productId: number;
+};
+
+export type OrderDetailResponse = {
+  orderNumber: string;
+  totalPrice: number;
+  orderStatus: string;
+  deliveryFee: number;
+  address: string;
+  postalCode: string;
+  receiverName: string;
+  receiverPhoneNumber: string;
+  orderProducts: OrderProductDetailResponse[];
+};
+
+export type PaymentRequestBody = {
+  paymentKey: string | null;
+  orderId: string | null;
+  orderNumber: string | null;
+  amount: number;
+};
+
+export type PaymentDetailResponse = {
+  paymentId: number;
+  orderNumber: string;
+  paymentStatus: string;
+  paymentMethod: string;
+  pgReceiptUrl: string | null;
+  requestedAt: string;
+  approvedAt: string | null;
+};
+
+export type CartDetailResponse = {
+  cartId: number;
+  userId: number;
+  products: {
+    cartProductId: number;
+    amount: number;
+    productName: string;
+    price: number;
+    totalPrice: number;
+  }[];
+  totalPrice: number;
 };
 
 type RequestOptions = RequestInit & {
@@ -171,11 +239,66 @@ export const api = {
       method: "DELETE",
       token
     }),
-  createOrder: (token: string, payload: OrderCreatePayload) =>
-    request<OrderCreateResponse>("/api/orders", {
+  createOrderFromProduct: (token: string, payload: OrderCreateFromProductPayload) =>
+    request<OrderCreateResponse>("/api/orders/product", {
       method: "POST",
       token,
       body: JSON.stringify(payload)
+    }),
+  createOrderFromCart: (token: string, payload: OrderCreateFromCartPayload) =>
+    request<OrderCreateResponse>("/api/orders/cart", {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload)
+    }),
+  getCart: (token: string) => request<CartDetailResponse>("/api/carts", { token }),
+  createCart: (token: string) =>
+    request<CartDetailResponse>("/api/carts", {
+      method: "POST",
+      token
+    }),
+  deleteCart: (token: string, cartId: number) =>
+    request<void>(`/api/carts/${cartId}`, {
+      method: "DELETE",
+      token
+    }),
+  addCartProduct: (token: string, cartId: number, payload: { productId: number; amount: number }) =>
+    request<CartDetailResponse>(`/api/carts/${cartId}`, {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload)
+    }),
+  orderDetail: (token: string, orderNumber: string) =>
+    request<OrderDetailResponse>(`/api/orders/${orderNumber}`, { token }),
+  confirmPayment: async (token: string, payload: PaymentRequestBody) => {
+    const response = await fetch(`${API_BASE_URL}/api/payments/confirm`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(text || `Request failed with ${response.status}`);
+    }
+
+    return text;
+  },
+  paymentDetail: (token: string, paymentId: number) =>
+    request<PaymentDetailResponse>(`/api/payments/${paymentId}`, { token }),
+  paymentDetailByOrderNumber: (token: string, orderNumber: string) =>
+    request<PaymentDetailResponse>(`/api/payments/orders/${orderNumber}/detail`, { token }),
+  orders: (token: string, page = 0, size = 20) =>
+    request<PageResponse<OrderSearchResponse>>(`/api/orders/search?page=${page}&size=${size}`, { token }),
+  payments: (token: string, page = 0, size = 20) =>
+    request<PageResponse<PaymentDetailResponse>>(`/api/payments?page=${page}&size=${size}`, { token }),
+  refundPayment: (token: string, paymentId: number) =>
+    request<void>(`/api/payments/${paymentId}`, {
+      method: "DELETE",
+      token
     }),
   createCategory: (token: string, payload: { name: string; thumbnail: string }) =>
     request<void>("/api/admin/categories", {
