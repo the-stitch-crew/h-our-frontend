@@ -1,12 +1,17 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, AddressPayload, AddressResponse } from "../api/client";
+import { Link } from "react-router-dom";
+import { api, AddressPayload, AddressResponse, OrderSearchResponse, PaymentDetailResponse } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { formatPrice } from "../data/products";
 
 export default function MyPage() {
   const { accessToken, user, updateMe, logout } = useAuth();
   const [addresses, setAddresses] = useState<AddressResponse[]>([]);
+  const [orders, setOrders] = useState<OrderSearchResponse[]>([]);
+  const [payments, setPayments] = useState<PaymentDetailResponse[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [isRefunding, setIsRefunding] = useState<number | null>(null);
   const [profile, setProfile] = useState({
     userName: user?.userName ?? "",
     phoneNumber: user?.phoneNumber ?? "",
@@ -20,6 +25,12 @@ export default function MyPage() {
     isMain: false
   });
 
+  const loadOrdersAndPayments = async (token: string) => {
+    const [orderPage, paymentPage] = await Promise.all([api.orders(token), api.payments(token)]);
+    setOrders(orderPage.content);
+    setPayments(paymentPage.content);
+  };
+
   useEffect(() => {
     if (!user) return;
     setProfile({
@@ -31,10 +42,16 @@ export default function MyPage() {
 
   useEffect(() => {
     if (!accessToken) return;
+
     api
       .addresses(accessToken)
       .then(setAddresses)
       .catch(() => setAddresses([]));
+
+    loadOrdersAndPayments(accessToken).catch(() => {
+      setOrders([]);
+      setPayments([]);
+    });
   }, [accessToken]);
 
   const submitProfile = async (event: FormEvent<HTMLFormElement>) => {
@@ -61,6 +78,25 @@ export default function MyPage() {
       setMessage("배송지가 추가되었습니다.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "배송지 추가에 실패했습니다.");
+    }
+  };
+
+  const requestRefund = async (paymentId: number) => {
+    if (!accessToken) return;
+    if (!window.confirm("해당 결제를 환불하시겠습니까?")) return;
+
+    setMessage("");
+    setError("");
+    setIsRefunding(paymentId);
+
+    try {
+      await api.refundPayment(accessToken, paymentId);
+      await loadOrdersAndPayments(accessToken);
+      setMessage("환불 신청이 완료되었습니다.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "환불 신청에 실패했습니다.");
+    } finally {
+      setIsRefunding(null);
     }
   };
 
@@ -157,6 +193,65 @@ export default function MyPage() {
           </form>
         </section>
       </div>
+
+      <section className="plain-panel account-history-panel">
+        <h2>주문 내역</h2>
+        {orders.length ? (
+          <div className="history-list">
+            {orders.map((order) => (
+              <article className="history-item" key={order.orderNumber}>
+                <div>
+                  <strong>{order.orderNumber}</strong>
+                  <p>{order.orderStatus}</p>
+                </div>
+                <div className="history-actions">
+                  <span>{formatPrice(order.totalPrice)}</span>
+                  <Link className="outline-button" to={`/payments/orders/${order.orderNumber}`}>
+                    결제하기
+                  </Link>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p>주문 내역이 없습니다.</p>
+        )}
+      </section>
+
+      <section className="plain-panel account-history-panel">
+        <h2>결제 내역</h2>
+        {payments.length ? (
+          <div className="history-list">
+            {payments.map((payment) => (
+              <article className="history-item" key={payment.paymentId}>
+                <div>
+                  <strong>결제번호 {payment.paymentId}</strong>
+                  <p>주문번호 {payment.orderNumber}</p>
+                  <p>
+                    {payment.paymentMethod} · {payment.paymentStatus}
+                  </p>
+                </div>
+                <div className="history-actions">
+                  <Link className="outline-button" to={`/payments/${payment.paymentId}/receipt`}>
+                    영수증
+                  </Link>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={payment.paymentStatus !== "COMPLETED" || isRefunding === payment.paymentId}
+                    onClick={() => void requestRefund(payment.paymentId)}
+                  >
+                    {isRefunding === payment.paymentId ? "환불 처리 중" : "환불 신청"}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p>결제 내역이 없습니다.</p>
+        )}
+      </section>
+
       {message && <p className="form-success">{message}</p>}
       {error && <p className="form-error">{error}</p>}
     </div>

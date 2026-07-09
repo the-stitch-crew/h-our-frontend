@@ -38,8 +38,15 @@ export default function ProductDetailPage() {
 
   const buyNow = () => {
     if (disabled) return;
-    addItem(product, quantity);
-    navigate("/checkout");
+    navigate("/checkout", {
+      state: {
+        mode: "product",
+        item: {
+          product,
+          quantity
+        }
+      }
+    });
   };
 
   return (
