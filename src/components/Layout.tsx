@@ -1,4 +1,4 @@
-import { Menu, Search, ShoppingBag, UserRound, X } from "lucide-react";
+import { Menu, Search, ShieldCheck, ShoppingBag, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -20,6 +20,7 @@ export default function Layout() {
   const { isAuthenticated, user, logout } = useAuth();
   const { itemCount } = useCart();
   const isHome = location.pathname === "/";
+  const isAdmin = user?.role === "ADMIN";
 
   useEffect(() => {
     if (!isHome) {
@@ -69,6 +70,11 @@ export default function Layout() {
             <NavLink to={isAuthenticated ? "/mypage" : "/login"} className="icon-button" aria-label="계정">
               <UserRound size={22} />
             </NavLink>
+            {isAdmin && (
+              <NavLink to="/admin" className="icon-button admin-entry" aria-label="관리자 페이지">
+                <ShieldCheck size={22} />
+              </NavLink>
+            )}
             <NavLink to="/cart" className="icon-button cart-link" aria-label="카트">
               <ShoppingBag size={22} />
               {itemCount > 0 && <span>{itemCount}</span>}
@@ -102,7 +108,7 @@ export default function Layout() {
               <NavLink to="/mypage" onClick={() => setMenuOpen(false)}>
                 My page
               </NavLink>
-              {user?.role === "ADMIN" && (
+              {isAdmin && (
                 <NavLink to="/admin" onClick={() => setMenuOpen(false)}>
                   Admin
                 </NavLink>
@@ -128,7 +134,7 @@ export default function Layout() {
         </div>
         <div>
           <p>서울시 광진구 광장로 67 1층</p>
-          <p>h-our@naver.com · 010-4908-9334</p>
+          <p>h-our@naver.com · 0507-1306-9334</p>
         </div>
         <div className="footer-links">
           <NavLink to="/contact">Contact</NavLink>
