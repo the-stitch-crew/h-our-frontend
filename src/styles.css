@@ -902,6 +902,14 @@ textarea {
   background: rgba(255, 255, 255, 0.94);
 }
 
+input.locked-oauth-field:disabled {
+  color: #f2f2f2;
+  border-color: #a8a8a8;
+  background: #b8b8b8;
+  opacity: 1;
+  -webkit-text-fill-color: #f2f2f2;
+}
+
 select:focus,
 input:focus,
 textarea:focus,
@@ -1230,6 +1238,40 @@ label {
 .auth-panel p a {
   border-bottom: 1px solid currentColor;
   color: var(--ink);
+}
+
+.auth-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  height: 1px;
+  background: var(--line);
+}
+
+.oauth-login-button {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dadce0;
+  color: #3c4043;
+  background: #fff;
+  font-weight: 700;
+  transition: border 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.oauth-login-button:hover {
+  border-color: #b8bdc6;
+  background: #f8fafd;
+  box-shadow: 0 8px 20px rgba(60, 64, 67, 0.08);
 }
 
 .plain-panel {

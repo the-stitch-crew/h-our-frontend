@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { api, CategoryResponse } from "../api/client";
 import ProductCard from "../components/ProductCard";
 import SectionHeader from "../components/SectionHeader";
-import { categoryImages, products } from "../data/products";
+import { categoryImages, mapProductSummary, Product } from "../data/products";
 
 const fallbackCategories: CategoryResponse[] = Object.entries(categoryImages).map(([name, thumbnail], index) => ({
   id: index + 1,
@@ -16,6 +16,9 @@ export default function ProductsPage() {
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [categories, setCategories] = useState<CategoryResponse[]>(fallbackCategories);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const [productsError, setProductsError] = useState("");
   const selectedCategory = params.get("category") ?? "All";
   const [sort, setSort] = useState("main");
   const browseHeaderRef = useRef<HTMLDivElement>(null);
@@ -27,19 +30,32 @@ export default function ProductsPage() {
       .catch(() => setCategories(fallbackCategories));
   }, []);
 
+  useEffect(() => {
+    setIsLoadingProducts(true);
+    setProductsError("");
+
+    api
+      .products(0, 100, selectedCategory === "All" ? "" : selectedCategory)
+      .then((page) => setProducts(page.content.map(mapProductSummary)))
+      .catch((caught) => {
+        setProducts([]);
+        setProductsError(caught instanceof Error ? caught.message : "상품을 불러오지 못했습니다.");
+      })
+      .finally(() => setIsLoadingProducts(false));
+  }, [selectedCategory]);
+
   const visibleProducts = useMemo(() => {
     const filtered = products.filter((product) => {
-      const matchesCategory = selectedCategory === "All" || product.category === selectedCategory;
       const matchesQuery = product.name.toLowerCase().includes(query.toLowerCase());
-      return matchesCategory && matchesQuery;
+      return matchesQuery;
     });
 
     return [...filtered].sort((a, b) => {
       if (sort === "low") return a.price - b.price;
       if (sort === "high") return b.price - a.price;
-      return Number(b.isMain) - Number(a.isMain);
+      return Number(b.isMain) - Number(a.isMain) || (b.salesCount ?? 0) - (a.salesCount ?? 0);
     });
-  }, [query, selectedCategory, sort]);
+  }, [products, query, sort]);
 
   const scrollToBrowseHeader = () => {
     window.requestAnimationFrame(() => {
@@ -68,7 +84,7 @@ export default function ProductsPage() {
         <SectionHeader
           eyebrow="Products"
           title="상품 둘러보기"
-          description="현재 백엔드 상품 조회 API가 준비되면 이 영역이 실제 상품 데이터로 교체됩니다."
+          description="카테고리별 상품을 둘러보고 원하는 제품을 바로 확인해보세요."
         />
       </div>
 
@@ -110,7 +126,15 @@ export default function ProductsPage() {
       </div>
 
       <div className="products-results">
-        {visibleProducts.length ? (
+        {isLoadingProducts ? (
+          <div className="empty-state">
+            <p>상품을 불러오는 중입니다.</p>
+          </div>
+        ) : productsError ? (
+          <div className="empty-state">
+            <p>{productsError}</p>
+          </div>
+        ) : visibleProducts.length ? (
           <div className="product-grid">
             {visibleProducts.map((product) => (
               <ProductCard key={product.id} product={product} />

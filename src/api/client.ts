@@ -1,4 +1,8 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+import type { ProductDetailItem, ProductSearchItem } from "../data/products";
+
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+const API_BASE_URL =
+  configuredApiBaseUrl || (import.meta.env.DEV ? "http://localhost:8080" : window.location.origin);
 export { API_BASE_URL };
 
 export type ApiEnvelope<T> = {
@@ -44,6 +48,20 @@ export type SignupPayload = {
   userName: string;
   email: string;
   password: string;
+  birthDate: string;
+  gender: Gender;
+  phoneNumber: string;
+  nationality: string;
+};
+
+export type OAuthSignupInfo = {
+  email: string;
+  userName: string;
+  provider: string;
+};
+
+export type OAuthSignupPayload = {
+  signupToken: string;
   birthDate: string;
   gender: Gender;
   phoneNumber: string;
@@ -161,6 +179,59 @@ export type CartDetailResponse = {
   totalPrice: number;
 };
 
+export type RecentOrderResponse = {
+  orderNumber: string;
+  ordererName: string;
+  totalPrice: number;
+  orderStatus: string;
+  createdAt: string;
+};
+
+export type TopProductResponse = {
+  productId: number;
+  name: string;
+  totalQuantity: number;
+  totalSales: number;
+  thumbnail: string | null;
+};
+
+export type AdminDashboardResponse = {
+  todaySales: number;
+  totalSales: number;
+  todayOrderCount: number;
+  paidOrderCount: number;
+  inDeliveryOrderCount: number;
+  totalUserCount: number;
+  todayUserCount: number;
+  activeProductCount: number;
+  soldOutProductCount: number;
+  recentOrders: RecentOrderResponse[];
+  topProducts: TopProductResponse[];
+};
+
+export type AdminOrderSearchResponse = {
+  orderNumber: string;
+  ordererName: string;
+  phoneNumber: string;
+  totalPrice: number;
+  orderStatus: string;
+  createdAt: string;
+};
+
+export type AdminUserSearchResponse = {
+  userId: number;
+  userName: string;
+  email: string;
+  phoneNumber: string;
+  role: string;
+  gender: string;
+  nationality: string;
+  isAuthLinked: boolean;
+  blacklisted: boolean;
+  createdAt: string;
+  deletedAt: string | null;
+};
+
 type RequestOptions = RequestInit & {
   token?: string | null;
 };
@@ -209,6 +280,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  oauthSignupInfo: (signupToken: string) => {
+    const params = new URLSearchParams({ signupToken });
+    return request<OAuthSignupInfo>(`/api/auth/oauth/signup?${params.toString()}`);
+  },
+  oauthSignup: (payload: OAuthSignupPayload) =>
+    request<LoginResponse>("/api/auth/oauth/signup", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   me: (token: string) => request<UserInfo>("/api/users/me", { token }),
   updateMe: (token: string, payload: Partial<SignupPayload>) =>
     request<UserInfo>("/api/users/me", {
@@ -222,6 +302,16 @@ export const api = {
       token
     }),
   categories: () => request<CategoryResponse[]>("/api/categories"),
+  products: (page = 0, size = 100, categoryName = "") => {
+    const params = new URLSearchParams({
+      page: String(page),
+      size: String(size)
+    });
+    if (categoryName) params.set("categoryName", categoryName);
+
+    return request<PageResponse<ProductSearchItem>>(`/api/products?${params.toString()}`);
+  },
+  product: (productId: number) => request<ProductDetailItem>(`/api/products/${productId}`),
   addresses: (token: string) => request<AddressResponse[]>("/api/addresses", { token }),
   createAddress: (token: string, payload: AddressPayload) =>
     request<AddressResponse>("/api/addresses", {
@@ -316,5 +406,10 @@ export const api = {
     request<void>(`/api/admin/categories/${categoryId}`, {
       method: "DELETE",
       token
-    })
+    }),
+  adminDashboard: (token: string) => request<AdminDashboardResponse>("/api/admin/dashboard", { token }),
+  adminOrders: (token: string, page = 0, size = 20) =>
+    request<PageResponse<AdminOrderSearchResponse>>(`/api/admin/orders?page=${page}&size=${size}`, { token }),
+  adminUsers: (token: string, page = 0, size = 20) =>
+    request<PageResponse<AdminUserSearchResponse>>(`/api/admin/users?page=${page}&size=${size}`, { token })
 };
