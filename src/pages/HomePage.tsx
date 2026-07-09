@@ -25,11 +25,10 @@ export default function HomePage() {
       </section>
 
       <section className="page-section featured-products" id="featured-products">
-        <SectionHeader
-          eyebrow="Featured"
-          title="오래 들고 싶은 대표 제품"
-          description="스크롤을 내리면 아워의 결을 가장 잘 보여주는 주요 상품을 자연스럽게 만날 수 있습니다."
-        />
+        <div className="featured-header">
+          <span>Featured</span>
+          <p>아워의 결을 가장 잘 보여주는 주요 상품을 한눈에 만나보세요.</p>
+        </div>
         <div className="product-grid">
           {mainProducts.map((product) => (
             <ProductCard key={product.id} product={product} />

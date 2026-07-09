@@ -2,8 +2,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import type { ReactElement } from "react";
 import Layout from "./components/Layout";
 import { useAuth } from "./context/AuthContext";
-import AboutPage from "./pages/AboutPage";
 import AdminPage from "./pages/AdminPage";
+import BrandPage from "./pages/BrandPage";
 import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import ClassReservationPage from "./pages/ClassReservationPage";
@@ -72,7 +72,8 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/class" element={<ClassReservationPage />} />
-        <Route path="/about" element={<AboutPage />} />
+        <Route path="/brand" element={<BrandPage />} />
+        <Route path="/about" element={<Navigate to="/brand" replace />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route
           path="/mypage"
