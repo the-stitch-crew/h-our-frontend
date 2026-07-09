@@ -150,6 +150,7 @@ export default function Layout() {
               <NavLink to="/contact">Contact</NavLink>
               <NavLink to="/class">Class Reservation</NavLink>
               <NavLink to="/products">Products</NavLink>
+              <NavLink to="/policies/shipping-policy">배송정책</NavLink>
             </div>
           </section>
 
@@ -169,7 +170,7 @@ export default function Layout() {
             <span>개인정보처리방침</span>
             <span>환불 정책</span>
             <span>서비스 약관</span>
-            <span>배송 정책</span>
+            <NavLink to="/policies/shipping-policy">배송정책</NavLink>
             <NavLink to="/contact">연락처 정보</NavLink>
             <span>법적 고지 사항</span>
           </div>

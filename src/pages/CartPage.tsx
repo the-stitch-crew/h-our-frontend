@@ -67,6 +67,12 @@ export default function CartPage() {
               <dt>배송비</dt>
               <dd>{formatPrice(deliveryFee)}</dd>
             </div>
+            <div className="summary-note-row">
+              <dt>배송 안내</dt>
+              <dd>
+                <Link to="/policies/shipping-policy">배송정책</Link>
+              </dd>
+            </div>
             <div>
               <dt>결제 예정 금액</dt>
               <dd>{formatPrice(subtotal + deliveryFee)}</dd>

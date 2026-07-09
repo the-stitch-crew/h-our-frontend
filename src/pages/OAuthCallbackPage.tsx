@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
@@ -7,8 +7,12 @@ export default function OAuthCallbackPage() {
   const [searchParams] = useSearchParams();
   const { completeOAuthLogin } = useAuth();
   const [error, setError] = useState("");
+  const hasHandledCallback = useRef(false);
 
   useEffect(() => {
+    if (hasHandledCallback.current) return;
+    hasHandledCallback.current = true;
+
     const accessToken = searchParams.get("accessToken");
     const refreshToken = searchParams.get("refreshToken");
 
