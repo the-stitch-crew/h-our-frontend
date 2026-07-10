@@ -27,9 +27,9 @@ export default function HomePage() {
         <img src="/assets/hour-studio-hero.png" alt="따뜻한 빛이 드는 가죽공방 작업대" />
         <div className="hero-copy">
           <span>h&apos;our leather studio</span>
-          <h1>우리의 시간이 깃든 가죽</h1>
+          <h1>당신의 시간이 깃드는 곳, 아워 가죽공방</h1>
           <p>
-            만드는 사람의 시간과 사용하는 사람의 시간이 만나, 오래 곁에 남는 물건이 됩니다.
+            시간을 더할수록, 우리의 인생처럼 깊어지는 아름다움
           </p>
         </div>
         <a className="scroll-cue" href="#featured-products" aria-label="주요 상품으로 이동">
@@ -41,7 +41,7 @@ export default function HomePage() {
       <section className="page-section featured-products" id="featured-products">
         <div className="featured-header">
           <span>Featured</span>
-          <p>사용할수록 색과 윤기가 깊어지는 아워의 대표 제품을 만나보세요.</p>
+          <p>사용할수록 에이징이 되어 깊어지는 아워의 대표 제품을 만나보세요.</p>
         </div>
         <div className="product-grid">
           {mainProducts.length ? (
@@ -53,7 +53,6 @@ export default function HomePage() {
           )}
         </div>
         <div className="featured-cta">
-          <p>대표 제품을 둘러본 뒤, 카테고리별 전체 제품을 이어서 확인해보세요.</p>
           <Link to="/products" className="primary-button">
             전체 상품 보기 <ArrowRight size={18} />
           </Link>
@@ -63,27 +62,27 @@ export default function HomePage() {
       <section className="home-experience">
         <SectionHeader
           eyebrow="Experience"
-          title="상품 너머의 아워"
-          description="직접 만드는 즐거움, 오래 사용하는 즐거움, 나만의 물건으로 변해가는 즐거움을 전합니다."
+          title="아워에서의 경험"
+          description="새로 만나는 즐거움, 직접 만드는 즐거움, 나만의 맞춤형 즐거움을 전합니다."
         />
         <div className="experience-grid">
           <Link to="/products" className="experience-tile">
             <ShoppingBag size={24} />
             <span>Shop</span>
-            <h3>나에게 맞는 가죽 물건 찾기</h3>
-            <p>가방, 지갑, 액세서리 속에서 일상에 오래 머물 물건을 고릅니다.</p>
+            <h3>가죽 제품 보러가기</h3>
+            <p>가방, 지갑, 악세사리 등 시간을 함께 보낼 제품을 만나보세요.</p>
           </Link>
           <Link to="/class" className="experience-tile featured">
             <Scissors size={24} />
             <span>Class</span>
-            <h3>하루 동안 직접 만드는 시간</h3>
-            <p>가죽을 고르고 자르고 바느질하며 자신의 취향과 이야기를 담습니다.</p>
+            <h3>원데이 클래스 예약하기</h3>
+            <p>원하는 제품을 직접 자르고 바느질하여 자신만의 제품을 만들어보세요.</p>
           </Link>
           <Link to="/contact" className="experience-tile">
             <MessageCircle size={24} />
             <span>Contact</span>
-            <h3>선물과 제작 문의 상담</h3>
-            <p>선물 추천, 관리 방법, 클래스 일정까지 오래 쓰기 위한 이야기를 나눕니다.</p>
+            <h3>맞춤 제작 및 기타 문의</h3>
+            <p>맞춤 제작, 정규반 신청, 단체 수강 등 기타 문의사항은 언제든 남겨주세요.</p>
           </Link>
         </div>
       </section>

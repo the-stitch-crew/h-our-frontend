@@ -13,25 +13,34 @@ import {
   Tags,
   Trash2,
   TrendingUp,
+  Truck,
   UserCheck,
   UsersRound,
   X
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, FormEvent, useEffect, useMemo, useState } from "react";
 import {
   AdminDashboardResponse,
+  AdminOrderDetailResponse,
   AdminOrderSearchResponse,
+  AdminProductDetailResponse,
+  AdminProductSearchResponse,
   AdminReservationResponse,
   AdminUserSearchResponse,
   api,
   CategoryResponse,
   LessonPolicyResponse,
   LessonResponse,
-  ProductCreatePayload
+  ProductCreatePayload,
+  ProductStatus,
+  ProductUpdatePayload,
+  Role,
+  ShippingPolicyPayload,
+  ShippingPolicyResponse
 } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { formatPrice, mapProductSummary, Product } from "../data/products";
+import { formatPrice } from "../data/products";
 
 type AdminSection =
   | "dashboard"
@@ -39,9 +48,11 @@ type AdminSection =
   | "classes"
   | "products"
   | "members"
-  | "categories";
+  | "categories"
+  | "shipping";
 type OrderStatus = "PURCHASED" | "IN_DELIVERY" | "DELIVERED" | "COMPLETE" | "CANCELED";
 type ReservationStatus = "PENDING" | "APPROVED" | "COMPLETED" | "CANCELED" | "NO_SHOW";
+type OrderAction = "indelivery" | "delivered" | "complete" | "cancel";
 
 type MetricCard = {
   label: string;
@@ -58,10 +69,12 @@ const adminSections: { id: AdminSection; label: string; icon: LucideIcon }[] = [
   { id: "products", label: "상품 관리", icon: Package },
   { id: "members", label: "회원 관리", icon: UsersRound },
   { id: "classes", label: "클래스 관리", icon: GraduationCap },
-  { id: "categories", label: "카테고리 관리", icon: Tags }
+  { id: "categories", label: "카테고리 관리", icon: Tags },
+  { id: "shipping", label: "배송 정책", icon: Truck }
 ];
 
 const statusOrder: OrderStatus[] = ["PURCHASED", "IN_DELIVERY", "DELIVERED", "COMPLETE", "CANCELED"];
+const productStatusOptions: ProductStatus[] = ["ACTIVATED", "SOLD_OUT"];
 const reservationStatusOrder: ReservationStatus[] = ["PENDING", "APPROVED", "COMPLETED", "CANCELED", "NO_SHOW"];
 const editableReservationStatuses: ReservationStatus[] = ["COMPLETED", "NO_SHOW"];
 const dayOptions = [
@@ -86,6 +99,12 @@ const emptyProductForm = {
   categoryId: "",
   summary: "",
   description: ""
+};
+const emptyShippingPolicyForm = {
+  id: null as number | null,
+  deliveryFee: "",
+  extraFee: "",
+  isActive: false
 };
 const emptyLessonForm = {
   id: null as number | null,
@@ -113,6 +132,19 @@ const statusLabels: Record<string, string> = {
   APPROVED: "예약확정",
   COMPLETED: "방문완료",
   NO_SHOW: "노쇼"
+};
+
+const productStatusLabels: Record<ProductStatus, string> = {
+  ACTIVATED: "판매중",
+  SOLD_OUT: "품절",
+  DELETED: "삭제됨"
+};
+
+const orderActionLabels: Record<OrderAction, string> = {
+  indelivery: "배송중 처리",
+  delivered: "배송완료 처리",
+  complete: "구매확정",
+  cancel: "주문 취소"
 };
 
 const formatDateTime = (value: string) =>
@@ -149,22 +181,28 @@ export default function AdminPage() {
   const { accessToken } = useAuth();
   const [activeSection, setActiveSection] = useState<AdminSection>("dashboard");
   const [categories, setCategories] = useState<CategoryResponse[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<AdminProductSearchResponse[]>([]);
   const [adminDashboard, setAdminDashboard] = useState<AdminDashboardResponse | null>(null);
   const [orders, setOrders] = useState<AdminOrderSearchResponse[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<AdminOrderDetailResponse | null>(null);
   const [members, setMembers] = useState<AdminUserSearchResponse[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ name: "", thumbnail: "" });
+  const [form, setForm] = useState({ name: "" });
+  const [categoryThumbnailFile, setCategoryThumbnailFile] = useState<File | null>(null);
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
+  const [editingProductId, setEditingProductId] = useState<number | null>(null);
   const [productForm, setProductForm] = useState(emptyProductForm);
   const [productThumbnailFile, setProductThumbnailFile] = useState<File | null>(null);
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ name: "", thumbnail: "" });
+  const [editCategoryThumbnailFile, setEditCategoryThumbnailFile] = useState<File | null>(null);
   const [lessons, setLessons] = useState<LessonResponse[]>([]);
   const [lessonPolicy, setLessonPolicy] = useState<LessonPolicyResponse | null>(null);
   const [reservations, setReservations] = useState<AdminReservationResponse[]>([]);
+  const [shippingPolicies, setShippingPolicies] = useState<ShippingPolicyResponse[]>([]);
+  const [shippingPolicyForm, setShippingPolicyForm] = useState(emptyShippingPolicyForm);
   const [reservationDateFilter, setReservationDateFilter] = useState(todayInputValue());
   const [reservationStatusFilter, setReservationStatusFilter] = useState("ALL");
   const [reservationForm, setReservationForm] = useState({
@@ -186,9 +224,14 @@ export default function AdminPage() {
   };
 
   const loadProducts = () => {
+    if (!accessToken) {
+      setProducts([]);
+      return;
+    }
+
     api
-      .products(0, 100)
-      .then((page) => setProducts(page.content.map(mapProductSummary)))
+      .adminProducts(accessToken, 0, 100)
+      .then((page) => setProducts(page.content))
       .catch(() => setProducts([]));
   };
 
@@ -243,6 +286,8 @@ export default function AdminPage() {
       setAdminDashboard(null);
       setOrders([]);
       setMembers([]);
+      setSelectedOrder(null);
+      setShippingPolicies([]);
       return;
     }
 
@@ -258,10 +303,14 @@ export default function AdminPage() {
       .adminUsers(accessToken, 0, 20)
       .then((page) => setMembers(page.content))
       .catch(() => setMembers([]));
+    api
+      .shippingPolicies(accessToken)
+      .then(setShippingPolicies)
+      .catch(() => setShippingPolicies([]));
   };
 
   useEffect(loadCategories, []);
-  useEffect(loadProducts, []);
+  useEffect(loadProducts, [accessToken]);
   useEffect(loadLessons, []);
   useEffect(loadLessonPolicy, []);
   useEffect(loadAdminData, [accessToken]);
@@ -271,11 +320,27 @@ export default function AdminPage() {
     () => (productThumbnailFile ? URL.createObjectURL(productThumbnailFile) : ""),
     [productThumbnailFile]
   );
+  const categoryThumbnailPreview = useMemo(
+    () => (categoryThumbnailFile ? URL.createObjectURL(categoryThumbnailFile) : ""),
+    [categoryThumbnailFile]
+  );
+  const editCategoryThumbnailPreview = useMemo(
+    () => (editCategoryThumbnailFile ? URL.createObjectURL(editCategoryThumbnailFile) : ""),
+    [editCategoryThumbnailFile]
+  );
 
   useEffect(() => {
     if (!productThumbnailPreview) return;
     return () => URL.revokeObjectURL(productThumbnailPreview);
   }, [productThumbnailPreview]);
+  useEffect(() => {
+    if (!categoryThumbnailPreview) return;
+    return () => URL.revokeObjectURL(categoryThumbnailPreview);
+  }, [categoryThumbnailPreview]);
+  useEffect(() => {
+    if (!editCategoryThumbnailPreview) return;
+    return () => URL.revokeObjectURL(editCategoryThumbnailPreview);
+  }, [editCategoryThumbnailPreview]);
 
   const selectedReservationLesson = lessons.find((lesson) => lesson.id === Number(reservationForm.lessonId));
   const reservationEndTime = selectedReservationLesson
@@ -342,13 +407,32 @@ export default function AdminPage() {
     setMessage("");
     setError("");
     try {
-      await api.createCategory(accessToken, form);
-      setForm({ name: "", thumbnail: "" });
+      await api.createCategory(accessToken, { name: form.name.trim(), thumbnailFile: categoryThumbnailFile });
+      setForm({ name: "" });
+      setCategoryThumbnailFile(null);
       setMessage("카테고리가 등록되었습니다.");
       loadCategories();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "카테고리 등록에 실패했습니다.");
     }
+  };
+
+  const resetProductForm = () => {
+    setProductForm(emptyProductForm);
+    setProductThumbnailFile(null);
+    setEditingProductId(null);
+    setIsProductFormOpen(false);
+  };
+
+  const fillProductForm = (product: AdminProductDetailResponse) => {
+    const matchedCategory = categories.find((category) => category.name === product.categoryName);
+    setProductForm({
+      name: product.name,
+      price: String(product.price),
+      categoryId: matchedCategory ? String(matchedCategory.id) : "",
+      summary: product.summary ?? "",
+      description: product.description ?? ""
+    });
   };
 
   const submitProduct = async (event: FormEvent<HTMLFormElement>) => {
@@ -363,35 +447,98 @@ export default function AdminPage() {
       return;
     }
 
-    if (!Number.isFinite(categoryId) || categoryId <= 0) {
+    if (editingProductId === null && (!Number.isFinite(categoryId) || categoryId <= 0)) {
       setError("상품 카테고리를 선택해주세요.");
       return;
     }
 
-    const payload: ProductCreatePayload = {
+    const basePayload: ProductUpdatePayload = {
       name: productForm.name.trim(),
       price,
-      categoryId,
       summary: productForm.summary.trim() || undefined,
       description: productForm.description.trim() || undefined,
       thumbnailFile: productThumbnailFile
+    };
+    const createPayload: ProductCreatePayload = {
+      ...basePayload,
+      categoryId
     };
 
     setMessage("");
     setError("");
     setIsCreatingProduct(true);
     try {
-      const createdProduct = await api.createProduct(accessToken, payload);
-      setProductForm(emptyProductForm);
-      setProductThumbnailFile(null);
-      setIsProductFormOpen(false);
-      setMessage(`${createdProduct.productName} 상품이 등록되었습니다.`);
+      if (editingProductId === null) {
+        const createdProduct = await api.createProduct(accessToken, createPayload);
+        setMessage(`${createdProduct.productName} 상품이 등록되었습니다.`);
+      } else {
+        await api.updateProduct(accessToken, editingProductId, basePayload);
+        setMessage("상품이 수정되었습니다.");
+      }
+      resetProductForm();
       loadProducts();
       loadAdminData();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "상품 등록에 실패했습니다.");
+      setError(caught instanceof Error ? caught.message : "상품 저장에 실패했습니다.");
     } finally {
       setIsCreatingProduct(false);
+    }
+  };
+
+  const startEditProduct = async (productId: number) => {
+    if (!accessToken) return;
+    setMessage("");
+    setError("");
+    try {
+      const product = await api.adminProduct(accessToken, productId);
+      setEditingProductId(productId);
+      fillProductForm(product);
+      setProductThumbnailFile(null);
+      setIsProductFormOpen(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "상품 정보를 불러오지 못했습니다.");
+    }
+  };
+
+  const updateProductStatus = async (productId: number, status: ProductStatus) => {
+    if (!accessToken) return;
+    setMessage("");
+    setError("");
+    try {
+      await api.updateProductStatus(accessToken, productId, status);
+      setMessage("상품 상태가 변경되었습니다.");
+      loadProducts();
+      loadAdminData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "상품 상태 변경에 실패했습니다.");
+    }
+  };
+
+  const setMainProduct = async (productId: number) => {
+    if (!accessToken) return;
+    setMessage("");
+    setError("");
+    try {
+      await api.setMainProduct(accessToken, productId);
+      setMessage("메인 상품이 변경되었습니다.");
+      loadProducts();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "메인 상품 설정에 실패했습니다.");
+    }
+  };
+
+  const removeProduct = async (productId: number) => {
+    if (!accessToken) return;
+    setMessage("");
+    setError("");
+    try {
+      await api.deleteProduct(accessToken, productId);
+      setMessage("상품이 삭제되었습니다.");
+      if (editingProductId === productId) resetProductForm();
+      loadProducts();
+      loadAdminData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "상품 삭제에 실패했습니다.");
     }
   };
 
@@ -437,6 +584,66 @@ export default function AdminPage() {
       loadReservations();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "예약 상태 수정에 실패했습니다.");
+    }
+  };
+
+  const toggleOrderDetail = async (orderNumber: string) => {
+    if (!accessToken) return;
+    if (selectedOrder?.orderNumber === orderNumber) {
+      setSelectedOrder(null);
+      return;
+    }
+
+    setMessage("");
+    setError("");
+    try {
+      setSelectedOrder(await api.adminOrder(accessToken, orderNumber));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "주문 상세를 불러오지 못했습니다.");
+    }
+  };
+
+  const updateOrderStatus = async (orderNumber: string, action: OrderAction) => {
+    if (!accessToken) return;
+    setMessage("");
+    setError("");
+    try {
+      await api.updateAdminOrderStatus(accessToken, orderNumber, action);
+      setMessage("주문 상태가 변경되었습니다.");
+      setSelectedOrder(null);
+      loadAdminData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "주문 상태 변경에 실패했습니다.");
+    }
+  };
+
+  const updateMemberRole = async (memberId: number, role: Role) => {
+    if (!accessToken) return;
+    setMessage("");
+    setError("");
+    try {
+      const updated = await api.updateAdminUserRole(accessToken, memberId, role);
+      setMembers((current) => current.map((member) => (member.userId === memberId ? { ...member, role: updated.role } : member)));
+      setMessage("회원 권한이 변경되었습니다.");
+      loadAdminData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "회원 권한 변경에 실패했습니다.");
+    }
+  };
+
+  const updateMemberBlacklist = async (memberId: number, blacklisted: boolean) => {
+    if (!accessToken) return;
+    setMessage("");
+    setError("");
+    try {
+      const updated = await api.updateAdminUserBlacklist(accessToken, memberId, blacklisted);
+      setMembers((current) =>
+        current.map((member) => (member.userId === memberId ? { ...member, blacklisted: updated.blacklisted } : member))
+      );
+      setMessage(blacklisted ? "회원이 블랙리스트에 등록되었습니다." : "회원 블랙리스트가 해제되었습니다.");
+      loadAdminData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "회원 블랙리스트 변경에 실패했습니다.");
     }
   };
 
@@ -533,6 +740,7 @@ export default function AdminPage() {
   const startEditCategory = (category: CategoryResponse) => {
     setEditingCategoryId(category.id);
     setEditForm({ name: category.name, thumbnail: category.thumbnail ?? "" });
+    setEditCategoryThumbnailFile(null);
     setMessage("");
     setError("");
   };
@@ -540,6 +748,7 @@ export default function AdminPage() {
   const cancelEditCategory = () => {
     setEditingCategoryId(null);
     setEditForm({ name: "", thumbnail: "" });
+    setEditCategoryThumbnailFile(null);
   };
 
   const submitEditCategory = async (event: FormEvent<HTMLFormElement>) => {
@@ -548,12 +757,91 @@ export default function AdminPage() {
     setMessage("");
     setError("");
     try {
-      await api.updateCategory(accessToken, editingCategoryId, editForm);
+      await api.updateCategory(accessToken, editingCategoryId, {
+        name: editForm.name.trim(),
+        thumbnailFile: editCategoryThumbnailFile
+      });
       setMessage("카테고리가 수정되었습니다.");
       cancelEditCategory();
       loadCategories();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "카테고리 수정에 실패했습니다.");
+    }
+  };
+
+  const startEditShippingPolicy = (policy: ShippingPolicyResponse) => {
+    setShippingPolicyForm({
+      id: policy.shippingPolicyId,
+      deliveryFee: String(policy.deliveryFee),
+      extraFee: String(policy.extraFee),
+      isActive: policy.isActive
+    });
+    setMessage("");
+    setError("");
+  };
+
+  const resetShippingPolicyForm = () => {
+    setShippingPolicyForm(emptyShippingPolicyForm);
+  };
+
+  const submitShippingPolicy = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!accessToken) return;
+
+    const deliveryFee = Number(shippingPolicyForm.deliveryFee);
+    const extraFee = Number(shippingPolicyForm.extraFee);
+    if (!Number.isFinite(deliveryFee) || deliveryFee < 0 || !Number.isFinite(extraFee) || extraFee < 0) {
+      setError("배송비와 추가 배송비를 0원 이상으로 입력해주세요.");
+      return;
+    }
+
+    const payload: ShippingPolicyPayload = {
+      deliveryFee,
+      extraFee,
+      isActive: shippingPolicyForm.isActive
+    };
+
+    setMessage("");
+    setError("");
+    try {
+      if (shippingPolicyForm.id === null) {
+        await api.createShippingPolicy(accessToken, payload);
+        setMessage("배송 정책이 등록되었습니다.");
+      } else {
+        await api.updateShippingPolicy(accessToken, shippingPolicyForm.id, payload);
+        setMessage("배송 정책이 수정되었습니다.");
+      }
+      resetShippingPolicyForm();
+      loadAdminData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "배송 정책 저장에 실패했습니다.");
+    }
+  };
+
+  const activateShippingPolicy = async (shippingPolicyId: number) => {
+    if (!accessToken) return;
+    setMessage("");
+    setError("");
+    try {
+      await api.activateShippingPolicy(accessToken, shippingPolicyId);
+      setMessage("활성 배송 정책이 변경되었습니다.");
+      loadAdminData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "배송 정책 활성화에 실패했습니다.");
+    }
+  };
+
+  const removeShippingPolicy = async (shippingPolicyId: number) => {
+    if (!accessToken) return;
+    setMessage("");
+    setError("");
+    try {
+      await api.deleteShippingPolicy(accessToken, shippingPolicyId);
+      if (shippingPolicyForm.id === shippingPolicyId) resetShippingPolicyForm();
+      setMessage("배송 정책이 삭제되었습니다.");
+      loadAdminData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "배송 정책 삭제에 실패했습니다.");
     }
   };
 
@@ -728,25 +1016,83 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {orders.map((order) => (
-                  <tr key={order.orderNumber}>
-                    <td>{formatDateTime(order.createdAt)}</td>
-                    <td>{order.orderNumber}</td>
-                    <td>{order.ordererName}</td>
-                    <td>{order.phoneNumber}</td>
-                    <td>{formatPrice(order.totalPrice)}</td>
-                    <td>
-                      <span className={`status-badge ${order.orderStatus === "CANCELED" ? "danger" : ""}`}>
-                        {statusLabels[order.orderStatus] ?? order.orderStatus}
-                      </span>
-                    </td>
-                    <td>
-                      <button className="text-button" type="button">
-                        상세
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {orders.map((order) => {
+                  const isOpen = selectedOrder?.orderNumber === order.orderNumber;
+                  const actions: OrderAction[] =
+                    order.orderStatus === "PURCHASED"
+                      ? ["indelivery", "cancel"]
+                      : order.orderStatus === "IN_DELIVERY"
+                        ? ["delivered", "cancel"]
+                        : order.orderStatus === "DELIVERED"
+                          ? ["complete", "cancel"]
+                          : [];
+
+                  return (
+                    <Fragment key={order.orderNumber}>
+                      <tr>
+                        <td>{formatDateTime(order.createdAt)}</td>
+                        <td>{order.orderNumber}</td>
+                        <td>{order.ordererName}</td>
+                        <td>{order.phoneNumber}</td>
+                        <td>{formatPrice(order.totalPrice)}</td>
+                        <td>
+                          <span className={`status-badge ${order.orderStatus === "CANCELED" ? "danger" : ""}`}>
+                            {statusLabels[order.orderStatus] ?? order.orderStatus}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="table-actions">
+                            <button className="text-button" onClick={() => void toggleOrderDetail(order.orderNumber)} type="button">
+                              {isOpen ? "닫기" : "상세"}
+                            </button>
+                            {actions.map((action) => (
+                              <button
+                                className={action === "cancel" ? "text-button danger" : "text-button"}
+                                key={action}
+                                onClick={() => void updateOrderStatus(order.orderNumber, action)}
+                                type="button"
+                              >
+                                {orderActionLabels[action]}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                      {isOpen && selectedOrder && (
+                        <tr className="admin-detail-row">
+                          <td colSpan={7}>
+                            <div className="admin-detail-panel">
+                              <div>
+                                <strong>수령인</strong>
+                                <span>{selectedOrder.receiverName} / {selectedOrder.receiverPhoneNumber}</span>
+                              </div>
+                              <div>
+                                <strong>배송지</strong>
+                                <span>[{selectedOrder.postalCode}] {selectedOrder.address}</span>
+                              </div>
+                              <div>
+                                <strong>요청사항</strong>
+                                <span>{selectedOrder.request || "없음"}</span>
+                              </div>
+                              <div>
+                                <strong>배송비</strong>
+                                <span>{formatPrice(selectedOrder.deliveryFee)}</span>
+                              </div>
+                              <div className="admin-detail-wide">
+                                <strong>주문 상품</strong>
+                                <span>
+                                  {selectedOrder.products
+                                    .map((product) => `${product.name} x ${product.amount} (${formatPrice(product.price)})`)
+                                    .join(", ")}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1168,7 +1514,12 @@ export default function AdminPage() {
               <button
                 className={isProductFormOpen ? "outline-button" : "primary-button"}
                 onClick={() => {
-                  setIsProductFormOpen((current) => !current);
+                  if (isProductFormOpen) {
+                    resetProductForm();
+                  } else {
+                    setIsProductFormOpen(true);
+                    setEditingProductId(null);
+                  }
                   setMessage("");
                   setError("");
                 }}
@@ -1181,6 +1532,10 @@ export default function AdminPage() {
           </div>
           {isProductFormOpen && (
             <form className="product-create-form" onSubmit={submitProduct}>
+              <div className="admin-form-heading">
+                <strong>{editingProductId === null ? "상품 등록" : "상품 수정"}</strong>
+                <span>{editingProductId === null ? "새 상품을 DB에 등록합니다." : "선택한 상품의 기본 정보와 이미지를 수정합니다."}</span>
+              </div>
               <div className="product-form-grid">
                 <label>
                   상품명
@@ -1208,7 +1563,7 @@ export default function AdminPage() {
                     value={productForm.categoryId}
                     onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })}
                     required
-                    disabled={!categories.length}
+                    disabled={!categories.length || editingProductId !== null}
                   >
                     <option value="">선택</option>
                     {categories.map((category) => (
@@ -1253,15 +1608,11 @@ export default function AdminPage() {
               <div className="product-form-actions">
                 <button className="primary-button" type="submit" disabled={isCreatingProduct || !categories.length}>
                   <Save size={18} />
-                  {isCreatingProduct ? "등록 중" : "DB에 상품 등록"}
+                  {isCreatingProduct ? "저장 중" : editingProductId === null ? "DB에 상품 등록" : "상품 수정 저장"}
                 </button>
                 <button
                   className="outline-button"
-                  onClick={() => {
-                    setProductForm(emptyProductForm);
-                    setProductThumbnailFile(null);
-                    setIsProductFormOpen(false);
-                  }}
+                  onClick={resetProductForm}
                   type="button"
                 >
                   취소
@@ -1285,27 +1636,51 @@ export default function AdminPage() {
               </thead>
               <tbody>
                 {products.map((product) => (
-                  <tr key={product.id}>
+                  <tr key={product.productId}>
                     <td>
                       <div className="table-product-cell">
-                        <img src={product.thumbnail} alt={product.name} />
+                        <img src={product.thumbnail || fallbackAdminImage} alt={product.name} />
                         <span>{product.name}</span>
                       </div>
                     </td>
-                    <td>{product.category}</td>
+                    <td>{product.categoryName ?? "미분류"}</td>
                     <td>{formatPrice(product.price)}</td>
                     <td>{numberFormatter.format(product.salesCount ?? 0)}</td>
                     <td>{numberFormatter.format(product.viewCount ?? 0)}</td>
                     <td>
                       <span className={`status-badge ${product.status === "SOLD_OUT" ? "danger" : ""}`}>
-                        {product.status === "SOLD_OUT" ? "품절" : "판매중"}
+                        {productStatusLabels[product.status]}
                       </span>
                     </td>
                     <td>{product.isMain ? "노출" : "미노출"}</td>
                     <td>
-                      <button className="text-button" type="button">
-                        수정
-                      </button>
+                      <div className="table-actions">
+                        <button className="text-button" onClick={() => void startEditProduct(product.productId)} type="button">
+                          수정
+                        </button>
+                        <select
+                          value={product.status}
+                          onChange={(event) => void updateProductStatus(product.productId, event.target.value as ProductStatus)}
+                          aria-label={`${product.name} 상태 변경`}
+                        >
+                          {productStatusOptions.map((status) => (
+                            <option key={status} value={status}>
+                              {productStatusLabels[status]}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          className="text-button"
+                          onClick={() => void setMainProduct(product.productId)}
+                          type="button"
+                          disabled={Boolean(product.isMain)}
+                        >
+                          메인
+                        </button>
+                        <button className="text-button danger" onClick={() => void removeProduct(product.productId)} type="button">
+                          삭제
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1337,6 +1712,7 @@ export default function AdminPage() {
                   <th>성별</th>
                   <th>국적</th>
                   <th>가입일</th>
+                  <th>관리</th>
                 </tr>
               </thead>
               <tbody>
@@ -1345,13 +1721,27 @@ export default function AdminPage() {
                     <td>{member.userName}</td>
                     <td>{member.email}</td>
                     <td>
-                      <span className={`status-badge ${member.blacklisted ? "muted" : ""}`}>
-                        {member.blacklisted ? "BLACKLIST" : member.role}
-                      </span>
+                      <select
+                        value={member.role}
+                        onChange={(event) => void updateMemberRole(member.userId, event.target.value as Role)}
+                        aria-label={`${member.userName} 권한 변경`}
+                      >
+                        <option value="USER">USER</option>
+                        <option value="ADMIN">ADMIN</option>
+                      </select>
                     </td>
                     <td>{member.gender}</td>
                     <td>{member.nationality}</td>
                     <td>{formatDateTime(member.createdAt)}</td>
+                    <td>
+                      <button
+                        className={member.blacklisted ? "text-button" : "text-button danger"}
+                        onClick={() => void updateMemberBlacklist(member.userId, !member.blacklisted)}
+                        type="button"
+                      >
+                        {member.blacklisted ? "차단 해제" : "차단"}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1383,13 +1773,19 @@ export default function AdminPage() {
                 />
               </label>
               <label>
-                썸네일 URL
+                썸네일 이미지
                 <input
-                  value={form.thumbnail}
-                  onChange={(event) => setForm({ ...form, thumbnail: event.target.value })}
-                  placeholder="선택 입력"
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  onChange={(event) => setCategoryThumbnailFile(event.target.files?.[0] ?? null)}
                 />
               </label>
+              {categoryThumbnailPreview && (
+                <div className="product-file-summary">
+                  <img src={categoryThumbnailPreview} alt="선택한 카테고리 이미지 미리보기" />
+                  <span>{categoryThumbnailFile?.name}</span>
+                </div>
+              )}
               <button className="primary-button" type="submit">
                 <Plus size={18} />
                 등록
@@ -1410,7 +1806,7 @@ export default function AdminPage() {
                   <article key={category.id}>
                     {editingCategoryId === category.id ? (
                       <form className="category-edit-form" onSubmit={submitEditCategory}>
-                        <img src={editForm.thumbnail || fallbackAdminImage} alt="" />
+                        <img src={editCategoryThumbnailPreview || editForm.thumbnail || fallbackAdminImage} alt="" />
                         <label>
                           이름
                           <input
@@ -1420,11 +1816,11 @@ export default function AdminPage() {
                           />
                         </label>
                         <label>
-                          썸네일 URL
+                          썸네일 이미지
                           <input
-                            value={editForm.thumbnail}
-                            onChange={(event) => setEditForm({ ...editForm, thumbnail: event.target.value })}
-                            placeholder="선택 입력"
+                            type="file"
+                            accept="image/png,image/jpeg"
+                            onChange={(event) => setEditCategoryThumbnailFile(event.target.files?.[0] ?? null)}
                           />
                         </label>
                         <div className="category-actions">
@@ -1470,6 +1866,128 @@ export default function AdminPage() {
               ) : (
                 <p className="empty-admin-copy">등록된 카테고리가 없습니다.</p>
               )}
+            </div>
+          </section>
+        </div>
+      </section>
+      )}
+
+      {activeSection === "shipping" && (
+      <section className="admin-section" id="admin-shipping" aria-labelledby="shipping-title">
+        <div className="admin-section-heading">
+          <span>Shipping</span>
+          <h2 id="shipping-title">배송 정책</h2>
+        </div>
+        <div className="admin-category-layout">
+          <section className="plain-panel admin-panel">
+            <div className="admin-panel-title">
+              <h2>{shippingPolicyForm.id === null ? "배송 정책 등록" : "배송 정책 수정"}</h2>
+              {shippingPolicyForm.id !== null && (
+                <button className="outline-button" onClick={resetShippingPolicyForm} type="button">
+                  <X size={18} />
+                  취소
+                </button>
+              )}
+            </div>
+            <form className="admin-inline-form" onSubmit={submitShippingPolicy}>
+              <div className="product-form-grid">
+                <label>
+                  기본 배송비
+                  <input
+                    type="number"
+                    min="0"
+                    value={shippingPolicyForm.deliveryFee}
+                    onChange={(event) => setShippingPolicyForm({ ...shippingPolicyForm, deliveryFee: event.target.value })}
+                    required
+                  />
+                </label>
+                <label>
+                  추가 배송비
+                  <input
+                    type="number"
+                    min="0"
+                    value={shippingPolicyForm.extraFee}
+                    onChange={(event) => setShippingPolicyForm({ ...shippingPolicyForm, extraFee: event.target.value })}
+                    required
+                  />
+                </label>
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={shippingPolicyForm.isActive}
+                    onChange={(event) => setShippingPolicyForm({ ...shippingPolicyForm, isActive: event.target.checked })}
+                  />
+                  활성 정책
+                </label>
+              </div>
+              <div className="product-form-actions">
+                <button className="primary-button" type="submit">
+                  <Save size={18} />
+                  저장
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section className="plain-panel admin-panel">
+            <div className="admin-panel-title">
+              <h2>배송 정책 목록</h2>
+              <span>{shippingPolicies.length}개</span>
+            </div>
+            <div className="admin-table-wrap">
+              <table className="admin-table shipping-policy-table">
+                <thead>
+                  <tr>
+                    <th>기본 배송비</th>
+                    <th>추가 배송비</th>
+                    <th>상태</th>
+                    <th>생성일</th>
+                    <th>관리</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shippingPolicies.length ? (
+                    shippingPolicies.map((policy) => (
+                      <tr key={policy.shippingPolicyId}>
+                        <td>{formatPrice(policy.deliveryFee)}</td>
+                        <td>{formatPrice(policy.extraFee)}</td>
+                        <td>
+                          <span className={`status-badge ${policy.isActive ? "" : "muted"}`}>
+                            {policy.isActive ? "활성" : "비활성"}
+                          </span>
+                        </td>
+                        <td>{formatDateTime(policy.createdAt)}</td>
+                        <td>
+                          <div className="table-actions">
+                            <button className="text-button" onClick={() => startEditShippingPolicy(policy)} type="button">
+                              수정
+                            </button>
+                            <button
+                              className="text-button"
+                              onClick={() => void activateShippingPolicy(policy.shippingPolicyId)}
+                              type="button"
+                              disabled={policy.isActive}
+                            >
+                              활성화
+                            </button>
+                            <button
+                              className="text-button danger"
+                              onClick={() => void removeShippingPolicy(policy.shippingPolicyId)}
+                              type="button"
+                            >
+                              삭제
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5}>등록된 배송 정책이 없습니다.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </section>
         </div>
