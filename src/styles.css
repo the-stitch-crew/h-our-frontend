@@ -1477,13 +1477,28 @@ label {
   color: var(--ink-soft);
 }
 
+.address-item-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.address-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .account-history-panel {
   margin-top: 28px;
 }
 
 .history-item {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   justify-content: space-between;
   gap: 18px;
 }
@@ -1497,6 +1512,26 @@ label {
   color: var(--ink-soft);
 }
 
+.history-main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.history-products,
+.history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.history-products span {
+  color: var(--ink);
+  font-weight: 700;
+}
+
 .history-actions {
   display: flex;
   flex: 0 0 auto;
@@ -1504,6 +1539,11 @@ label {
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.history-actions small {
+  color: var(--ink-soft);
+  font-weight: 700;
 }
 
 .history-actions .primary-button,
@@ -3426,6 +3466,16 @@ label {
 
   .category-edit-form img {
     width: 64px;
+  }
+
+  .history-item {
+    grid-template-columns: 1fr;
+  }
+
+  .history-actions,
+  .address-item-heading,
+  .address-actions {
+    justify-content: flex-start;
   }
 
   .footer-bottom,
