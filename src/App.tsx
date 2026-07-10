@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import type { ReactElement } from "react";
+import { useEffect, type ReactElement } from "react";
 import Layout from "./components/Layout";
 import { useAuth } from "./context/AuthContext";
 import AdminPage from "./pages/AdminPage";
@@ -20,17 +20,38 @@ import PaymentSuccessPage from "./pages/PaymentSuccessPage";
 import PaymentTestLoginPage from "./pages/PaymentTestLoginPage";
 import ProductDetailPage from "./pages/ProductDetailPage";
 import ProductsPage from "./pages/ProductsPage";
+import ShippingPolicyPage from "./pages/ShippingPolicyPage";
 import SignupPage from "./pages/SignupPage";
 
 function ProtectedRoute({ children }: { children: ReactElement }) {
-  const { isAuthenticated, isLoading } = useAuth();
-  if (isLoading) return <div className="page loading-page">불러오는 중입니다.</div>;
-  return isAuthenticated ? children : <Navigate to="/login" replace />;
+  const { isAuthenticated, isLoading, user, refreshMe } = useAuth();
+
+  useEffect(() => {
+    if (isAuthenticated && !user && !isLoading) {
+      void refreshMe();
+    }
+  }, [isAuthenticated, isLoading, refreshMe, user]);
+
+  if (isLoading || (isAuthenticated && !user)) {
+    return <div className="page loading-page">불러오는 중입니다.</div>;
+  }
+
+  return isAuthenticated && user ? children : <Navigate to="/login" replace />;
 }
 
 function AdminRoute({ children }: { children: ReactElement }) {
-  const { user, isLoading } = useAuth();
-  if (isLoading) return <div className="page loading-page">불러오는 중입니다.</div>;
+  const { isAuthenticated, user, isLoading, refreshMe } = useAuth();
+
+  useEffect(() => {
+    if (isAuthenticated && !user && !isLoading) {
+      void refreshMe();
+    }
+  }, [isAuthenticated, isLoading, refreshMe, user]);
+
+  if (isLoading || (isAuthenticated && !user)) {
+    return <div className="page loading-page">불러오는 중입니다.</div>;
+  }
+
   return user?.role === "ADMIN" ? children : <Navigate to="/" replace />;
 }
 
@@ -47,6 +68,14 @@ export default function App() {
         <Route path="/payments/test-login" element={<PaymentTestLoginPage />} />
         <Route
           path="/payments/orders/:orderNumber"
+          element={
+            <ProtectedRoute>
+              <PaymentPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/payments/reservations/:reservationId"
           element={
             <ProtectedRoute>
               <PaymentPage />
@@ -77,6 +106,7 @@ export default function App() {
         <Route path="/brand" element={<BrandPage />} />
         <Route path="/about" element={<Navigate to="/brand" replace />} />
         <Route path="/contact" element={<ContactPage />} />
+        <Route path="/policies/shipping-policy" element={<ShippingPolicyPage />} />
         <Route
           path="/mypage"
           element={

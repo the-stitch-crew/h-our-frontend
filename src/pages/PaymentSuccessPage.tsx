@@ -12,7 +12,12 @@ export default function PaymentSuccessPage() {
   const [payment, setPayment] = useState<PaymentDetailResponse | null>(null);
 
   const orderNumber = searchParams.get("orderNumber");
+  const paymentTarget = searchParams.get("paymentTarget") === "reservation" ? "reservation" : "order";
+  const reservationId = searchParams.get("reservationId");
   const amount = Number(searchParams.get("amount") || 0);
+  const numberLabel = paymentTarget === "reservation" ? "예약번호" : "주문번호";
+  const retryPath =
+    paymentTarget === "reservation" && reservationId ? `/payments/reservations/${reservationId}` : `/payments/orders/${orderNumber}`;
 
   useEffect(() => {
     async function confirm() {
@@ -23,7 +28,7 @@ export default function PaymentSuccessPage() {
       }
 
       if (!orderNumber) {
-        setMessage("주문번호를 찾을 수 없습니다.");
+        setMessage(`${numberLabel}를 찾을 수 없습니다.`);
         setStatus("fail");
         return;
       }
@@ -71,7 +76,7 @@ export default function PaymentSuccessPage() {
           <p>{message}</p>
           <div className="button-row">
             {orderNumber && (
-              <Link className="primary-button" to={`/payments/orders/${orderNumber}`}>
+              <Link className="primary-button" to={retryPath}>
                 다시 시도
               </Link>
             )}
@@ -88,11 +93,11 @@ export default function PaymentSuccessPage() {
     <div className="receipt-page">
       <main className="payment-result-card">
         <div className="success-icon">✓</div>
-        <h1>결제가 완료되었습니다</h1>
-        <p>주문이 정상적으로 처리되었습니다.</p>
+        <h1>{paymentTarget === "reservation" ? "예약이 확정되었습니다" : "결제가 완료되었습니다"}</h1>
+        <p>{paymentTarget === "reservation" ? "예약금 결제가 완료되어 예약이 확정되었습니다." : "주문이 정상적으로 처리되었습니다."}</p>
         <dl>
           <div>
-            <dt>주문번호</dt>
+            <dt>{numberLabel}</dt>
             <dd>{orderNumber ?? "-"}</dd>
           </div>
           <div>

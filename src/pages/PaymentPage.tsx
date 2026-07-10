@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, OrderDetailResponse } from "../api/client";
+import { api, OrderDetailResponse, ReservationResponse } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { formatPrice } from "../data/products";
 
@@ -47,14 +47,39 @@ function getOrderName(order: OrderDetailResponse) {
 
 export default function PaymentPage() {
   const { orderNumber = "" } = useParams();
+  const { reservationId = "" } = useParams();
   const { accessToken, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [order, setOrder] = useState<OrderDetailResponse | null>(null);
+  const [reservation, setReservation] = useState<ReservationResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isWidgetReady, setIsWidgetReady] = useState(false);
   const [error, setError] = useState("");
 
-  const orderName = useMemo(() => (order ? getOrderName(order) : "주문 상품"), [order]);
+  const isReservationPayment = Boolean(reservationId);
+  const paymentTarget = useMemo(() => {
+    if (reservation) {
+      return {
+        type: "reservation" as const,
+        number: reservation.reservationNumber,
+        name: `${reservation.lesson.name} 예약금`,
+        amount: reservation.deposit,
+        customerName: "예약자"
+      };
+    }
+
+    if (order) {
+      return {
+        type: "order" as const,
+        number: order.orderNumber,
+        name: getOrderName(order),
+        amount: order.totalPrice,
+        customerName: order.receiverName
+      };
+    }
+
+    return null;
+  }, [order, reservation]);
 
   useEffect(() => {
     if (!isAuthenticated || !accessToken) {
@@ -64,32 +89,41 @@ export default function PaymentPage() {
 
     let ignore = false;
 
-    async function loadOrder() {
+    async function loadPaymentTarget() {
       setIsLoading(true);
       setError("");
 
       try {
+        if (isReservationPayment) {
+          const nextReservation = await api.myReservation(accessToken!, Number(reservationId));
+          if (nextReservation.status !== "PENDING") {
+            throw new Error("결제 대기 상태의 예약만 결제할 수 있습니다.");
+          }
+          if (!ignore) setReservation(nextReservation);
+          return;
+        }
+
         const nextOrder = await api.orderDetail(accessToken!, orderNumber);
         if (!ignore) setOrder(nextOrder);
       } catch (caught) {
-        if (!ignore) setError(caught instanceof Error ? caught.message : "주문 정보를 불러오지 못했습니다.");
+        if (!ignore) setError(caught instanceof Error ? caught.message : "결제 정보를 불러오지 못했습니다.");
       } finally {
         if (!ignore) setIsLoading(false);
       }
     }
 
-    void loadOrder();
+    void loadPaymentTarget();
 
     return () => {
       ignore = true;
     };
-  }, [accessToken, isAuthenticated, navigate, orderNumber]);
+  }, [accessToken, isAuthenticated, isReservationPayment, navigate, orderNumber, reservationId]);
 
   useEffect(() => {
-    if (!order) return;
+    if (!paymentTarget) return;
 
     let ignore = false;
-    const currentOrder = order;
+    const currentTarget = paymentTarget;
 
     async function renderWidget() {
       setError("");
@@ -107,7 +141,7 @@ export default function PaymentPage() {
         const tossPayments = window.TossPayments(TOSS_CLIENT_KEY);
         const widgets = tossPayments.widgets({ customerKey: window.TossPayments.ANONYMOUS });
 
-        await widgets.setAmount({ currency: "KRW", value: currentOrder.totalPrice });
+        await widgets.setAmount({ currency: "KRW", value: currentTarget.amount });
         await widgets.renderPaymentMethods({ selector: "#payment-method", variantKey: "DEFAULT" });
         await widgets.renderAgreement({ selector: "#agreement", variantKey: "AGREEMENT" });
 
@@ -123,10 +157,10 @@ export default function PaymentPage() {
     return () => {
       ignore = true;
     };
-  }, [order]);
+  }, [paymentTarget]);
 
   const requestPayment = async () => {
-    if (!order) return;
+    if (!paymentTarget) return;
 
     const widgets = (window as Window & { hourPaymentWidgets?: StoredWidgets }).hourPaymentWidgets;
     if (!widgets) {
@@ -136,33 +170,39 @@ export default function PaymentPage() {
 
     const successUrl = new URL("/payments/success", window.location.origin);
     const failUrl = new URL("/payments/fail", window.location.origin);
-    successUrl.searchParams.set("orderNumber", order.orderNumber);
-    failUrl.searchParams.set("orderNumber", order.orderNumber);
+    successUrl.searchParams.set("orderNumber", paymentTarget.number);
+    successUrl.searchParams.set("paymentTarget", paymentTarget.type);
+    failUrl.searchParams.set("orderNumber", paymentTarget.number);
+    failUrl.searchParams.set("paymentTarget", paymentTarget.type);
+    if (reservation) {
+      successUrl.searchParams.set("reservationId", String(reservation.id));
+      failUrl.searchParams.set("reservationId", String(reservation.id));
+    }
 
     await widgets.requestPayment({
       orderId: crypto.randomUUID(),
-      orderName,
+      orderName: paymentTarget.name,
       successUrl: successUrl.toString(),
       failUrl: failUrl.toString(),
-      customerName: order.receiverName
+      customerName: paymentTarget.customerName
     });
   };
 
   if (isLoading) return <div className="page loading-page">결제 정보를 불러오는 중입니다.</div>;
 
-  if (error && !order) {
+  if (error && !paymentTarget) {
     return (
       <div className="page empty-state">
         <h1>결제 정보를 불러오지 못했습니다</h1>
         <p>{error}</p>
-        <Link className="primary-button" to="/mypage">
-          마이페이지로 이동
+        <Link className="primary-button" to={isReservationPayment ? "/class" : "/mypage"}>
+          {isReservationPayment ? "예약 다시 선택" : "마이페이지로 이동"}
         </Link>
       </div>
     );
   }
 
-  if (!order) return null;
+  if (!paymentTarget) return null;
 
   return (
     <div className="payment-shell">
@@ -170,49 +210,84 @@ export default function PaymentPage() {
         <section className="payment-product-section">
           <div className="payment-product-info">
             <div className="payment-product-details">
-              <p className="payment-eyebrow">주문 결제</p>
-              <h1>{orderName}</h1>
-              <p>주문번호 {order.orderNumber}</p>
+              <p className="payment-eyebrow">{paymentTarget.type === "reservation" ? "예약금 결제" : "주문 결제"}</p>
+              <h1>{paymentTarget.name}</h1>
+              <p>{paymentTarget.type === "reservation" ? "예약번호" : "주문번호"} {paymentTarget.number}</p>
             </div>
             <div className="payment-price">
-              <p>{formatPrice(order.totalPrice)}</p>
+              <p>{formatPrice(paymentTarget.amount)}</p>
             </div>
           </div>
 
           <div className="payment-summary">
-            {order.orderProducts.map((product) => (
-              <div className="payment-summary-row" key={`${product.productId}-${product.name}`}>
-                <span>
-                  {product.name} x {product.amount}
-                </span>
-                <strong>{formatPrice(product.price * product.amount)}</strong>
+            {order &&
+              order.orderProducts.map((product) => (
+                <div className="payment-summary-row" key={`${product.productId}-${product.name}`}>
+                  <span>
+                    {product.name} x {product.amount}
+                  </span>
+                  <strong>{formatPrice(product.price * product.amount)}</strong>
+                </div>
+              ))}
+            {order && (
+              <div className="payment-summary-row">
+                <span>배송비</span>
+                <strong>{formatPrice(order.deliveryFee)}</strong>
               </div>
-            ))}
-            <div className="payment-summary-row">
-              <span>배송비</span>
-              <strong>{formatPrice(order.deliveryFee)}</strong>
-            </div>
+            )}
+            {reservation && (
+              <>
+                <div className="payment-summary-row">
+                  <span>수업료</span>
+                  <strong>{formatPrice(reservation.price)}</strong>
+                </div>
+                <div className="payment-summary-row">
+                  <span>예약금</span>
+                  <strong>{formatPrice(reservation.deposit)}</strong>
+                </div>
+              </>
+            )}
             <div className="payment-summary-row total">
-              <span>총 결제 금액</span>
-              <strong>{formatPrice(order.totalPrice)}</strong>
+              <span>{paymentTarget.type === "reservation" ? "예약금 결제 금액" : "총 결제 금액"}</span>
+              <strong>{formatPrice(paymentTarget.amount)}</strong>
             </div>
           </div>
 
           <div className="payment-shipping">
-            <div>
-              <span>받는 분</span>
-              <strong>{order.receiverName}</strong>
-            </div>
-            <div>
-              <span>연락처</span>
-              <strong>{order.receiverPhoneNumber}</strong>
-            </div>
-            <div>
-              <span>배송지</span>
-              <strong>
-                ({order.postalCode}) {order.address}
-              </strong>
-            </div>
+            {order && (
+              <>
+                <div>
+                  <span>받는 분</span>
+                  <strong>{order.receiverName}</strong>
+                </div>
+                <div>
+                  <span>연락처</span>
+                  <strong>{order.receiverPhoneNumber}</strong>
+                </div>
+                <div>
+                  <span>배송지</span>
+                  <strong>
+                    ({order.postalCode}) {order.address}
+                  </strong>
+                </div>
+              </>
+            )}
+            {reservation && (
+              <>
+                <div>
+                  <span>클래스</span>
+                  <strong>{reservation.lesson.name}</strong>
+                </div>
+                <div>
+                  <span>일정</span>
+                  <strong>{`${reservation.date} ${reservation.startTime} ~ ${reservation.endTime}`}</strong>
+                </div>
+                <div>
+                  <span>상태</span>
+                  <strong>{reservation.status}</strong>
+                </div>
+              </>
+            )}
           </div>
         </section>
 

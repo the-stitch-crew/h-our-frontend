@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api, Gender } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
@@ -50,15 +50,13 @@ function getBirthDate(year: string, month: string, day: string) {
 
 export default function SignupPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const signupToken = searchParams.get("signupToken")?.trim() ?? "";
-  const isOAuthSignup = signupToken.length > 0;
   const { oauthSignup, signup } = useAuth();
   const monthInputRef = useRef<HTMLInputElement>(null);
   const dayInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isLoadingOAuthInfo, setIsLoadingOAuthInfo] = useState(false);
+  const [isOAuthSignup, setIsOAuthSignup] = useState(false);
+  const [isLoadingOAuthInfo, setIsLoadingOAuthInfo] = useState(true);
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [birthDateParts, setBirthDateParts] = useState({
     year: "",
@@ -87,17 +85,12 @@ export default function SignupPage() {
   const isPhoneValid = phonePattern.test(form.phoneNumber);
 
   useEffect(() => {
-    if (!isOAuthSignup) {
-      return;
-    }
-
     let isActive = true;
-    setError("");
-    setIsLoadingOAuthInfo(true);
 
-    api.oauthSignupInfo(signupToken)
+    api.oauthSignupInfo()
       .then((info) => {
         if (!isActive) return;
+        setIsOAuthSignup(true);
         setForm((current) => ({
           ...current,
           userName: info.userName,
@@ -106,9 +99,9 @@ export default function SignupPage() {
         }));
         setPasswordConfirm("");
       })
-      .catch((caught) => {
+      .catch(() => {
         if (!isActive) return;
-        setError(caught instanceof Error ? caught.message : "OAuth 회원 정보를 불러오지 못했습니다.");
+        setIsOAuthSignup(false);
       })
       .finally(() => {
         if (isActive) {
@@ -119,7 +112,7 @@ export default function SignupPage() {
     return () => {
       isActive = false;
     };
-  }, [isOAuthSignup, signupToken]);
+  }, []);
 
   const birthDateError = useMemo(() => {
     const hasBirthDateInput = birthDateParts.year || birthDateParts.month || birthDateParts.day;
@@ -203,7 +196,6 @@ export default function SignupPage() {
     try {
       if (isOAuthSignup) {
         await oauthSignup({
-          signupToken,
           birthDate: form.birthDate,
           gender: form.gender,
           phoneNumber: form.phoneNumber,

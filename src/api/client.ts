@@ -61,7 +61,6 @@ export type OAuthSignupInfo = {
 };
 
 export type OAuthSignupPayload = {
-  signupToken: string;
   birthDate: string;
   gender: Gender;
   phoneNumber: string;
@@ -71,7 +70,7 @@ export type OAuthSignupPayload = {
 export type CategoryResponse = {
   id: number;
   name: string;
-  thumbnail: string;
+  thumbnail: string | null;
 };
 
 export type AddressResponse = {
@@ -232,14 +231,112 @@ export type AdminUserSearchResponse = {
   deletedAt: string | null;
 };
 
+export type ProductCreatePayload = {
+  name: string;
+  price: number;
+  summary?: string;
+  description?: string;
+  categoryId: number;
+  thumbnailFile?: File | null;
+};
+
+export type ProductCreateResponse = {
+  productName: string;
+  price: number;
+  productId: number;
+};
+
+export type ReservationStatus = "PENDING" | "APPROVED" | "COMPLETED" | "CANCELED" | "NO_SHOW";
+
+export type LessonResponse = {
+  id: number;
+  name: string;
+  price: number;
+  duration: number;
+};
+
+export type LessonPayload = {
+  name: string;
+  price: number;
+  duration: number;
+};
+
+export type LessonPolicyResponse = {
+  reservationAvailableDays: number;
+  reservationDeadlineDays: number;
+  cancelDeadlineDays: number;
+  depositAmount: number;
+  startTime: string;
+  endTime: string;
+  regularDays: string[];
+};
+
+export type LessonPolicyPayload = LessonPolicyResponse;
+
+export type ReservationCreatePayload = {
+  date: string;
+  startTime: string;
+  endTime: string;
+  deposit: number;
+  price: number;
+  request?: string;
+  lessonId: number;
+};
+
+export type ExistReservationResponse = {
+  id: number;
+  date: string;
+  startTime: string;
+  endTime: string;
+};
+
+export type ReservationResponse = {
+  id: number;
+  date: string;
+  startTime: string;
+  endTime: string;
+  deposit: number;
+  price: number;
+  request: string | null;
+  reservationNumber: string;
+  status: ReservationStatus;
+  lesson: LessonResponse;
+};
+
+export type CustomerSummaryResponse = {
+  userId: number;
+  userName: string;
+  email: string;
+  phoneNumber: string;
+  nationality: string;
+  reservationCount: number;
+  visitCount: number;
+  lastVisitDate: string | null;
+};
+
+export type AdminReservationResponse = {
+  id: number;
+  date: string;
+  startTime: string;
+  endTime: string;
+  deposit: number;
+  price: number;
+  request: string | null;
+  reservationNumber: string;
+  state: ReservationStatus;
+  customer: CustomerSummaryResponse;
+  lesson: LessonResponse;
+};
+
 type RequestOptions = RequestInit & {
   token?: string | null;
 };
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers);
+  const isFormData = options.body instanceof FormData;
 
-  if (!headers.has("Content-Type") && options.body) {
+  if (!headers.has("Content-Type") && options.body && !isFormData) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -264,6 +361,32 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return payload ? payload.data : (undefined as T);
 }
 
+function createCategoryFormData(payload: { name: string }) {
+  const formData = new FormData();
+  formData.append(
+    "request",
+    new Blob([JSON.stringify({ name: payload.name })], {
+      type: "application/json"
+    })
+  );
+  return formData;
+}
+
+function createProductFormData(payload: ProductCreatePayload) {
+  const formData = new FormData();
+  const { thumbnailFile, ...request } = payload;
+  formData.append(
+    "request",
+    new Blob([JSON.stringify(request)], {
+      type: "application/json"
+    })
+  );
+  if (thumbnailFile) {
+    formData.append("file", thumbnailFile);
+  }
+  return formData;
+}
+
 export const api = {
   login: (email: string, password: string) =>
     request<LoginResponse>("/api/auth/login", {
@@ -280,13 +403,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  oauthSignupInfo: (signupToken: string) => {
-    const params = new URLSearchParams({ signupToken });
-    return request<OAuthSignupInfo>(`/api/auth/oauth/signup?${params.toString()}`);
-  },
+  oauthSignupInfo: () => request<OAuthSignupInfo>("/api/auth/oauth/signup", { credentials: "include" }),
   oauthSignup: (payload: OAuthSignupPayload) =>
     request<LoginResponse>("/api/auth/oauth/signup", {
       method: "POST",
+      credentials: "include",
       body: JSON.stringify(payload)
     }),
   me: (token: string) => request<UserInfo>("/api/users/me", { token }),
@@ -390,22 +511,85 @@ export const api = {
       method: "DELETE",
       token
     }),
-  createCategory: (token: string, payload: { name: string; thumbnail: string }) =>
+  createCategory: (token: string, payload: { name: string; thumbnail?: string }) =>
     request<void>("/api/admin/categories", {
       method: "POST",
       token,
-      body: JSON.stringify(payload)
+      body: createCategoryFormData(payload)
     }),
-  updateCategory: (token: string, categoryId: number, payload: { name: string; thumbnail: string }) =>
+  updateCategory: (token: string, categoryId: number, payload: { name: string; thumbnail?: string }) =>
     request<void>(`/api/admin/categories/${categoryId}`, {
-      method: "PATCH",
+      method: "PUT",
       token,
-      body: JSON.stringify(payload)
+      body: createCategoryFormData(payload)
     }),
   deleteCategory: (token: string, categoryId: number) =>
     request<void>(`/api/admin/categories/${categoryId}`, {
       method: "DELETE",
       token
+    }),
+  createProduct: (token: string, payload: ProductCreatePayload) =>
+    request<ProductCreateResponse>("/api/admin/products", {
+      method: "POST",
+      token,
+      body: createProductFormData(payload)
+    }),
+  lessons: () => request<LessonResponse[]>("/api/lessons"),
+  lessonPolicy: () => request<LessonPolicyResponse>("/api/lessons/policy"),
+  existingReservations: (fromDate: string, toDate: string) =>
+    request<ExistReservationResponse[]>(`/api/reservations?fromDate=${fromDate}&toDate=${toDate}`),
+  createReservation: (token: string, payload: ReservationCreatePayload) =>
+    request<ReservationResponse>("/api/reservations", {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload)
+    }),
+  myReservation: (token: string, reservationId: number) =>
+    request<ReservationResponse>(`/api/reservations/my/reservations/${reservationId}`, { token }),
+  adminReservations: (
+    token: string,
+    params: { date?: string; year?: number; month?: number; week?: number; status?: string; page?: number }
+  ) => {
+    const searchParams = new URLSearchParams({
+      status: params.status ?? "ALL",
+      page: String(params.page ?? 1)
+    });
+    if (params.date) searchParams.set("date", params.date);
+    if (params.year) searchParams.set("year", String(params.year));
+    if (params.month) searchParams.set("month", String(params.month));
+    if (params.week) searchParams.set("week", String(params.week));
+
+    return request<PageResponse<AdminReservationResponse>>(`/api/admin/reservations?${searchParams.toString()}`, {
+      token
+    });
+  },
+  updateAdminReservationStatus: (token: string, reservationId: number, status: ReservationStatus) =>
+    request<void>(`/api/admin/reservations/status/${reservationId}?status=${status}`, {
+      method: "PATCH",
+      token
+    }),
+  createLesson: (token: string, payload: LessonPayload) =>
+    request<void>("/api/admin/lessons", {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload)
+    }),
+  updateLesson: (token: string, lessonId: number, payload: LessonPayload) =>
+    request<void>(`/api/admin/lessons/${lessonId}`, {
+      method: "PUT",
+      token,
+      body: JSON.stringify(payload)
+    }),
+  deleteLesson: (token: string, lessonId: number) =>
+    request<void>(`/api/admin/lessons/${lessonId}`, {
+      method: "DELETE",
+      token
+    }),
+  updateLessonPolicy: (token: string, payload: LessonPolicyPayload) =>
+    request<void>("/api/admin/lessons/policy", {
+      method: "PUT",
+      token,
+      body: JSON.stringify(payload)
     }),
   adminDashboard: (token: string) => request<AdminDashboardResponse>("/api/admin/dashboard", { token }),
   adminOrders: (token: string, page = 0, size = 20) =>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { api, LoginResponse, OAuthSignupPayload, SignupPayload, UserInfo } from "../api/client";
 
 const AUTH_STORAGE_KEY = "hour.auth.tokens";
@@ -14,7 +14,7 @@ type AuthContextValue = {
   oauthSignup: (payload: OAuthSignupPayload) => Promise<void>;
   completeOAuthLogin: (tokens: LoginResponse) => void;
   logout: () => Promise<void>;
-  refreshMe: () => Promise<void>;
+  refreshMe: () => Promise<boolean>;
   updateMe: (payload: Partial<SignupPayload>) => Promise<void>;
 };
 
@@ -36,29 +36,64 @@ function storeTokens(tokens: LoginResponse | null) {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [tokens, setTokens] = useState<LoginResponse | null>(() => readStoredTokens());
   const [user, setUser] = useState<UserInfo | null>(null);
-  const [isLoading, setIsLoading] = useState(Boolean(tokens?.accessToken));
+  const [isLoading, setIsLoading] = useState(false);
 
-  const refreshMe = async () => {
+  const clearAuth = useCallback(() => {
+    storeTokens(null);
+    setTokens(null);
+    setUser(null);
+  }, []);
+
+  const loadUser = useCallback(
+    async (nextTokens: LoginResponse | null) => {
+      if (!nextTokens?.accessToken) {
+        setUser(null);
+        return false;
+      }
+
+      setIsLoading(true);
+      try {
+        const me = await api.me(nextTokens.accessToken);
+        setUser(me);
+        return true;
+      } catch {
+        clearAuth();
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [clearAuth]
+  );
+
+  const applyTokens = useCallback(
+    async (nextTokens: LoginResponse) => {
+      storeTokens(nextTokens);
+      setTokens(nextTokens);
+      const isValid = await loadUser(nextTokens);
+      if (!isValid) {
+        throw new Error("로그인 세션을 확인하지 못했습니다.");
+      }
+    },
+    [loadUser]
+  );
+
+  const refreshMe = useCallback(async () => {
     if (!tokens?.accessToken) {
       setUser(null);
-      return;
+      return false;
     }
-    setIsLoading(true);
-    try {
-      const me = await api.me(tokens.accessToken);
-      setUser(me);
-    } catch {
-      storeTokens(null);
-      setTokens(null);
-      setUser(null);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    return loadUser(tokens);
+  }, [loadUser, tokens]);
 
-  useEffect(() => {
-    void refreshMe();
-  }, [tokens?.accessToken]);
+  const completeOAuthLogin = useCallback(
+    (nextTokens: LoginResponse) => {
+      storeTokens(nextTokens);
+      setTokens(nextTokens);
+      void loadUser(nextTokens);
+    },
+    [loadUser]
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -69,31 +104,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       login: async (email, password) => {
         const nextTokens = await api.login(email, password);
-        storeTokens(nextTokens);
-        setTokens(nextTokens);
+        await applyTokens(nextTokens);
       },
       signup: async (payload) => {
         await api.signup(payload);
         const nextTokens = await api.login(payload.email, payload.password);
-        storeTokens(nextTokens);
-        setTokens(nextTokens);
+        await applyTokens(nextTokens);
       },
       oauthSignup: async (payload) => {
         const nextTokens = await api.oauthSignup(payload);
-        storeTokens(nextTokens);
-        setTokens(nextTokens);
+        await applyTokens(nextTokens);
       },
-      completeOAuthLogin: (nextTokens) => {
-        storeTokens(nextTokens);
-        setTokens(nextTokens);
-      },
+      completeOAuthLogin,
       logout: async () => {
         if (tokens?.refreshToken) {
           await api.logout(tokens.refreshToken).catch(() => undefined);
         }
-        storeTokens(null);
-        setTokens(null);
-        setUser(null);
+        clearAuth();
       },
       refreshMe,
       updateMe: async (payload) => {
@@ -102,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(nextUser);
       }
     }),
-    [tokens, user, isLoading]
+    [applyTokens, clearAuth, completeOAuthLogin, refreshMe, tokens, user, isLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

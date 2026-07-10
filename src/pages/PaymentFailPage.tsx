@@ -4,8 +4,13 @@ import { formatPrice } from "../data/products";
 export default function PaymentFailPage() {
   const [searchParams] = useSearchParams();
   const orderNumber = searchParams.get("orderNumber");
+  const paymentTarget = searchParams.get("paymentTarget") === "reservation" ? "reservation" : "order";
+  const reservationId = searchParams.get("reservationId");
   const amount = Number(searchParams.get("amount") || 0);
   const message = searchParams.get("message") || "결제 과정에서 문제가 발생했습니다.";
+  const numberLabel = paymentTarget === "reservation" ? "예약번호" : "주문번호";
+  const retryPath =
+    paymentTarget === "reservation" && reservationId ? `/payments/reservations/${reservationId}` : `/payments/orders/${orderNumber}`;
 
   return (
     <div className="receipt-page">
@@ -15,7 +20,7 @@ export default function PaymentFailPage() {
         <p>{message}</p>
         <dl>
           <div>
-            <dt>주문번호</dt>
+            <dt>{numberLabel}</dt>
             <dd>{orderNumber ?? "-"}</dd>
           </div>
           <div>
@@ -25,7 +30,7 @@ export default function PaymentFailPage() {
         </dl>
         <div className="button-row">
           {orderNumber && (
-            <Link className="primary-button" to={`/payments/orders/${orderNumber}`}>
+            <Link className="primary-button" to={retryPath}>
               다시 시도
             </Link>
           )}

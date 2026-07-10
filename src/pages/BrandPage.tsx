@@ -1,19 +1,19 @@
 const brandPrinciples = [
   {
-    title: "손의 속도",
-    description: "서두르지 않는 제작 과정을 통해 가죽의 결, 두께, 마감이 자연스럽게 드러나도록 만듭니다."
+    title: "직접 만드는 즐거움",
+    description: "가죽을 고르고 자르고 바느질하는 시간 속에 자신의 취향과 이야기를 담습니다."
   },
   {
-    title: "일상의 균형",
-    description: "눈에 띄기보다 오래 곁에 남는 형태를 고릅니다. 매일 드는 물건일수록 조용한 균형이 필요합니다."
+    title: "오래 사용하는 즐거움",
+    description: "빠르게 교체되는 물건보다 오래 곁에 두며 깊은 가치가 생기는 물건을 만듭니다."
   },
   {
-    title: "시간의 기록",
-    description: "사용자의 손과 계절을 지나며 남는 자국까지 제품의 일부로 받아들이는 물건을 지향합니다."
+    title: "나만의 물건이 되는 즐거움",
+    description: "손때와 색의 변화, 생활의 흔적까지 세상에 하나뿐인 기록으로 받아들입니다."
   }
 ];
 
-const studioValues = ["절제된 실루엣", "견고한 구조", "따뜻한 색감", "수선 가능한 물건"];
+const studioValues = ["베지터블 가죽", "시간의 흔적", "깊어지는 색", "생활에 맞는 형태"];
 
 export default function BrandPage() {
   return (
@@ -21,10 +21,10 @@ export default function BrandPage() {
       <section className="brand-hero">
         <div className="brand-hero-copy">
           <span>Brand philosophy</span>
-          <h1>h&apos;our는 손으로 만든 시간이 오래 남는다고 믿습니다.</h1>
+          <h1>h&apos;our는 우리의 시간으로 완성되는 가죽을 만듭니다.</h1>
           <p>
-            아워의 제품은 빠르게 지나가는 유행보다 매일의 손에 천천히 익어가는 물건을 향합니다.
-            좋은 가죽, 단정한 구조, 고요한 색을 바탕으로 시간이 지날수록 더 자연스러워지는 생활의 도구를 만듭니다.
+            h&apos;our에는 시간을 뜻하는 hour와 우리의 의미를 가진 our가 함께 담겨 있습니다.
+            만든 사람의 시간과 사용하는 사람의 시간이 만나 하나의 물건이 되고, 그 시간이 곧 아워의 이야기가 됩니다.
           </p>
         </div>
         <img
@@ -36,8 +36,8 @@ export default function BrandPage() {
       <section className="brand-statement">
         <span>Our attitude</span>
         <p>
-          좋은 물건은 완성되는 순간보다 사용되는 시간 속에서 더 분명해집니다. h&apos;our는 새것의 완벽함보다,
-          오래 쓰며 생기는 윤기와 손때가 어울리는 가죽 제품을 만듭니다.
+          아워의 제품은 공방에서 제작이 끝나는 순간 완성되지 않습니다. 사용자의 체온과 손길,
+          공기와 햇빛을 지나며 색이 깊어지고 자연스러운 광택과 흔적이 생길 때 비로소 각자의 물건이 됩니다.
         </p>
       </section>
 
@@ -54,11 +54,11 @@ export default function BrandPage() {
       <section className="brand-material">
         <div>
           <span>Material and form</span>
-          <h2>단정하지만 차갑지 않은 물건</h2>
+          <h2>시간을 더할수록 깊어지는 베지터블 가죽</h2>
         </div>
         <p>
-          가죽의 질감이 충분히 보이도록 장식은 덜어내고, 손이 자주 닿는 부분의 마감은 더 세심하게 다룹니다.
-          h&apos;our가 고르는 색과 형태는 계절과 옷차림에 부드럽게 섞이면서도 오래 질리지 않는 방향을 따릅니다.
+          베지터블 가죽은 처음의 모습 그대로 멈춰 있는 소재가 아닙니다. 흠집과 색의 변화는 손상이 아니라
+          함께 보낸 시간을 보여주는 기록이며, 사용할수록 사용자를 닮아가는 아름다움입니다.
         </p>
         <ul>
           {studioValues.map((value) => (
@@ -69,7 +69,7 @@ export default function BrandPage() {
 
       <section className="brand-closing">
         <span>h&apos;our studio</span>
-        <h2>만드는 사람의 시간에서 사용하는 사람의 시간으로.</h2>
+        <h2>시간을 더할수록, 우리의 인생처럼 깊어지는 가죽의 아름다움.</h2>
       </section>
     </div>
   );
