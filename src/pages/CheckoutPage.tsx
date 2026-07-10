@@ -1,6 +1,6 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { api } from "../api/client";
+import { api, AddressResponse } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { CartItem, useCart } from "../context/CartContext";
 import { formatPrice } from "../data/products";
@@ -23,6 +23,8 @@ export default function CheckoutPage() {
   const { accessToken, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [sameAsOrderer, setSameAsOrderer] = useState(true);
+  const [savedAddresses, setSavedAddresses] = useState<AddressResponse[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -42,9 +44,50 @@ export default function CheckoutPage() {
   const total = subtotal + deliveryFee;
 
   const canSubmit = useMemo(
-    () => items.length > 0 && Boolean(form.ordererName && form.phoneNumber && form.postalCode && form.address),
+    () =>
+      items.length > 0 &&
+      Boolean(
+        form.ordererName &&
+          form.phoneNumber &&
+          form.receiverName &&
+          form.receiverPhoneNumber &&
+          form.postalCode &&
+          form.address
+      ),
     [form, items.length]
   );
+
+  const applyAddress = (address: AddressResponse) => {
+    setSelectedAddressId(String(address.id));
+    setForm((current) => ({
+      ...current,
+      postalCode: address.zipCode,
+      address: address.roadAddress,
+      addressDetail: address.addressDetail
+    }));
+  };
+
+  useEffect(() => {
+    if (!accessToken) return;
+    let ignore = false;
+
+    api
+      .addresses(accessToken)
+      .then((addresses) => {
+        if (ignore) return;
+        const sorted = [...addresses].sort((a, b) => Number(b.isMain) - Number(a.isMain) || b.id - a.id);
+        setSavedAddresses(sorted);
+        const mainAddress = sorted.find((address) => address.isMain) ?? sorted[0];
+        if (mainAddress) applyAddress(mainAddress);
+      })
+      .catch(() => {
+        if (!ignore) setSavedAddresses([]);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [accessToken]);
 
   if (!items.length) {
     return (
@@ -59,6 +102,9 @@ export default function CheckoutPage() {
   }
 
   const updateField = (name: keyof typeof form, value: string) => {
+    if (name === "postalCode" || name === "address" || name === "addressDetail") {
+      setSelectedAddressId("");
+    }
     setForm((current) => {
       const next = { ...current, [name]: value };
       if (sameAsOrderer && name === "ordererName") next.receiverName = value;
@@ -177,6 +223,30 @@ export default function CheckoutPage() {
 
           <fieldset>
             <legend>배송지</legend>
+            {savedAddresses.length > 0 && (
+              <label>
+                저장된 배송지
+                <select
+                  value={selectedAddressId}
+                  onChange={(event) => {
+                    const address = savedAddresses.find((item) => item.id === Number(event.target.value));
+                    if (address) {
+                      applyAddress(address);
+                    } else {
+                      setSelectedAddressId("");
+                    }
+                  }}
+                >
+                  <option value="">직접 입력</option>
+                  {savedAddresses.map((address) => (
+                    <option key={address.id} value={address.id}>
+                      {address.isMain ? "기본 배송지 - " : ""}
+                      [{address.zipCode}] {address.roadAddress} {address.addressDetail}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label>
               우편번호
               <input value={form.postalCode} onChange={(event) => updateField("postalCode", event.target.value)} />

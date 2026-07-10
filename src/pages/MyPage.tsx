@@ -1,13 +1,42 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, AddressPayload, AddressResponse, OrderSearchResponse, PaymentDetailResponse } from "../api/client";
+import {
+  api,
+  AddressPayload,
+  AddressResponse,
+  Gender,
+  OrderDetailResponse,
+  OrderSearchResponse,
+  PaymentDetailResponse
+} from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { formatPrice } from "../data/products";
+
+type MyPageOrder = OrderSearchResponse & Partial<Omit<OrderDetailResponse, "orderNumber" | "totalPrice" | "orderStatus">>;
+
+const sortAddresses = (items: AddressResponse[]) =>
+  [...items].sort((a, b) => Number(b.isMain) - Number(a.isMain) || b.id - a.id);
+
+const orderStatusLabels: Record<string, string> = {
+  ORDERED: "주문접수",
+  PURCHASED: "결제완료",
+  IN_DELIVERY: "배송중",
+  DELIVERED: "배송완료",
+  COMPLETE: "구매확정",
+  CANCELED: "취소"
+};
+
+const paymentStatusLabels: Record<string, string> = {
+  PENDING: "결제대기",
+  COMPLETED: "결제완료",
+  CANCELED: "취소",
+  REFUNDED: "환불완료"
+};
 
 export default function MyPage() {
   const { accessToken, user, updateMe, logout } = useAuth();
   const [addresses, setAddresses] = useState<AddressResponse[]>([]);
-  const [orders, setOrders] = useState<OrderSearchResponse[]>([]);
+  const [orders, setOrders] = useState<MyPageOrder[]>([]);
   const [payments, setPayments] = useState<PaymentDetailResponse[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -15,6 +44,8 @@ export default function MyPage() {
   const [profile, setProfile] = useState({
     userName: user?.userName ?? "",
     phoneNumber: user?.phoneNumber ?? "",
+    birthDate: user?.birthDate ?? "",
+    gender: user?.gender ?? "FEMALE",
     nationality: user?.nationality ?? "KOREA"
   });
   const [addressForm, setAddressForm] = useState<AddressPayload>({
@@ -25,9 +56,20 @@ export default function MyPage() {
     isMain: false
   });
 
+  const loadAddresses = async (token: string) => {
+    const nextAddresses = await api.addresses(token);
+    setAddresses(sortAddresses(nextAddresses));
+  };
+
   const loadOrdersAndPayments = async (token: string) => {
     const [orderPage, paymentPage] = await Promise.all([api.orders(token), api.payments(token)]);
-    setOrders(orderPage.content);
+    const detailedOrders = await Promise.all(
+      orderPage.content.map(async (order) => {
+        const detail = await api.orderDetail(token, order.orderNumber).catch(() => null);
+        return detail ? { ...order, ...detail } : order;
+      })
+    );
+    setOrders(detailedOrders);
     setPayments(paymentPage.content);
   };
 
@@ -36,6 +78,8 @@ export default function MyPage() {
     setProfile({
       userName: user.userName,
       phoneNumber: user.phoneNumber,
+      birthDate: user.birthDate,
+      gender: user.gender,
       nationality: user.nationality
     });
   }, [user]);
@@ -43,16 +87,18 @@ export default function MyPage() {
   useEffect(() => {
     if (!accessToken) return;
 
-    api
-      .addresses(accessToken)
-      .then(setAddresses)
-      .catch(() => setAddresses([]));
+    loadAddresses(accessToken).catch(() => setAddresses([]));
 
     loadOrdersAndPayments(accessToken).catch(() => {
       setOrders([]);
       setPayments([]);
     });
   }, [accessToken]);
+
+  const paymentByOrderNumber = useMemo(
+    () => new Map(payments.map((payment) => [payment.orderNumber, payment])),
+    [payments]
+  );
 
   const submitProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -72,12 +118,38 @@ export default function MyPage() {
     setMessage("");
     setError("");
     try {
-      const nextAddress = await api.createAddress(accessToken, addressForm);
-      setAddresses((current) => [...current, nextAddress]);
+      await api.createAddress(accessToken, addressForm);
+      await loadAddresses(accessToken);
       setAddressForm({ zipCode: "", roadAddress: "", oldAddress: "", addressDetail: "", isMain: false });
       setMessage("배송지가 추가되었습니다.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "배송지 추가에 실패했습니다.");
+    }
+  };
+
+  const setMainAddress = async (addressId: number) => {
+    if (!accessToken) return;
+    setMessage("");
+    setError("");
+    try {
+      await api.setMainAddress(accessToken, addressId);
+      await loadAddresses(accessToken);
+      setMessage("기본 배송지가 변경되었습니다.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "기본 배송지 변경에 실패했습니다.");
+    }
+  };
+
+  const deleteAddress = async (addressId: number) => {
+    if (!accessToken) return;
+    setMessage("");
+    setError("");
+    try {
+      await api.deleteAddress(accessToken, addressId);
+      await loadAddresses(accessToken);
+      setMessage("배송지가 삭제되었습니다.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "배송지 삭제에 실패했습니다.");
     }
   };
 
@@ -123,6 +195,24 @@ export default function MyPage() {
               />
             </label>
             <label>
+              생년월일
+              <input
+                type="date"
+                value={profile.birthDate}
+                onChange={(event) => setProfile({ ...profile, birthDate: event.target.value })}
+              />
+            </label>
+            <label>
+              성별
+              <select
+                value={profile.gender}
+                onChange={(event) => setProfile({ ...profile, gender: event.target.value as Gender })}
+              >
+                <option value="FEMALE">여성</option>
+                <option value="MALE">남성</option>
+              </select>
+            </label>
+            <label>
               국적
               <input
                 value={profile.nationality}
@@ -144,7 +234,19 @@ export default function MyPage() {
             {addresses.length ? (
               addresses.map((address) => (
                 <article key={address.id} className="address-item">
-                  <strong>{address.isMain ? "기본 배송지" : "배송지"}</strong>
+                  <div className="address-item-heading">
+                    <strong>{address.isMain ? "기본 배송지" : "배송지"}</strong>
+                    <div className="address-actions">
+                      {!address.isMain && (
+                        <button className="text-button" type="button" onClick={() => void setMainAddress(address.id)}>
+                          기본 설정
+                        </button>
+                      )}
+                      <button className="text-button danger" type="button" onClick={() => void deleteAddress(address.id)}>
+                        삭제
+                      </button>
+                    </div>
+                  </div>
                   <p>
                     [{address.zipCode}] {address.roadAddress} {address.addressDetail}
                   </p>
@@ -200,15 +302,35 @@ export default function MyPage() {
           <div className="history-list">
             {orders.map((order) => (
               <article className="history-item" key={order.orderNumber}>
-                <div>
-                  <strong>{order.orderNumber}</strong>
-                  <p>{order.orderStatus}</p>
+                <div className="history-main">
+                  <strong>주문번호 {order.orderNumber}</strong>
+                  <p>{orderStatusLabels[order.orderStatus] ?? order.orderStatus}</p>
+                  {order.orderProducts?.length ? (
+                    <div className="history-products">
+                      {order.orderProducts.map((product) => (
+                        <span key={`${order.orderNumber}-${product.productId}-${product.name}`}>
+                          {product.name} x {product.amount}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {order.address && (
+                    <div className="history-meta">
+                      <span>수령인 {order.receiverName}</span>
+                      <span>
+                        배송지 [{order.postalCode}] {order.address}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="history-actions">
                   <span>{formatPrice(order.totalPrice)}</span>
-                  <Link className="outline-button" to={`/payments/orders/${order.orderNumber}`}>
-                    결제하기
-                  </Link>
+                  {paymentByOrderNumber.get(order.orderNumber) && (
+                    <small>
+                      {paymentStatusLabels[paymentByOrderNumber.get(order.orderNumber)!.paymentStatus] ??
+                        paymentByOrderNumber.get(order.orderNumber)!.paymentStatus}
+                    </small>
+                  )}
                 </div>
               </article>
             ))}
