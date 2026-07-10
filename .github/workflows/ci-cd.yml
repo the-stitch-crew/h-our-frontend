@@ -56,6 +56,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}
           # Step 6의 with에 정의한 산출물 : tags로서 설정
           tags: ${{ steps.meta.outputs.tags }}
   deploy:

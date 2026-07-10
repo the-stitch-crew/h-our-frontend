@@ -217,6 +217,24 @@ export type AdminOrderSearchResponse = {
   createdAt: string;
 };
 
+export type AdminOrderProductResponse = {
+  productId: number;
+  name: string;
+  amount: number;
+  price: number;
+  option: string;
+};
+
+export type AdminOrderDetailResponse = AdminOrderSearchResponse & {
+  deliveryFee: number;
+  receiverName: string;
+  receiverPhoneNumber: string;
+  address: string;
+  postalCode: string;
+  request: string | null;
+  products: AdminOrderProductResponse[];
+};
+
 export type AdminUserSearchResponse = {
   userId: number;
   userName: string;
@@ -231,6 +249,35 @@ export type AdminUserSearchResponse = {
   deletedAt: string | null;
 };
 
+export type AdminUserDetailResponse = AdminUserSearchResponse & {
+  birthDate: string;
+  provider: string | null;
+  updatedAt: string;
+};
+
+export type ProductStatus = "ACTIVATED" | "SOLD_OUT" | "DELETED";
+
+export type AdminProductSearchResponse = {
+  productId: number;
+  name: string;
+  price: number;
+  thumbnail: string | null;
+  status: ProductStatus;
+  categoryName: string | null;
+  isMain: boolean | null;
+  viewCount: number | null;
+  salesCount: number | null;
+  createdAt: string;
+};
+
+export type AdminProductDetailResponse = AdminProductSearchResponse & {
+  summary: string | null;
+  description: string | null;
+  lastErolledToMain: string | null;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
 export type ProductCreatePayload = {
   name: string;
   price: number;
@@ -239,6 +286,8 @@ export type ProductCreatePayload = {
   categoryId: number;
   thumbnailFile?: File | null;
 };
+
+export type ProductUpdatePayload = Omit<ProductCreatePayload, "categoryId">;
 
 export type ProductCreateResponse = {
   productName: string;
@@ -328,6 +377,22 @@ export type AdminReservationResponse = {
   lesson: LessonResponse;
 };
 
+export type ShippingPolicyResponse = {
+  shippingPolicyId: number;
+  deliveryFee: number;
+  extraFee: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+export type ShippingPolicyPayload = {
+  deliveryFee: number;
+  extraFee: number;
+  isActive: boolean;
+};
+
 type RequestOptions = RequestInit & {
   token?: string | null;
 };
@@ -361,7 +426,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return payload ? payload.data : (undefined as T);
 }
 
-function createCategoryFormData(payload: { name: string }) {
+function createCategoryFormData(payload: { name: string; thumbnailFile?: File | null }) {
   const formData = new FormData();
   formData.append(
     "request",
@@ -369,10 +434,13 @@ function createCategoryFormData(payload: { name: string }) {
       type: "application/json"
     })
   );
+  if (payload.thumbnailFile) {
+    formData.append("file", payload.thumbnailFile);
+  }
   return formData;
 }
 
-function createProductFormData(payload: ProductCreatePayload) {
+function createProductFormData(payload: ProductCreatePayload | ProductUpdatePayload) {
   const formData = new FormData();
   const { thumbnailFile, ...request } = payload;
   formData.append(
@@ -511,13 +579,13 @@ export const api = {
       method: "DELETE",
       token
     }),
-  createCategory: (token: string, payload: { name: string; thumbnail?: string }) =>
+  createCategory: (token: string, payload: { name: string; thumbnailFile?: File | null }) =>
     request<void>("/api/admin/categories", {
       method: "POST",
       token,
       body: createCategoryFormData(payload)
     }),
-  updateCategory: (token: string, categoryId: number, payload: { name: string; thumbnail?: string }) =>
+  updateCategory: (token: string, categoryId: number, payload: { name: string; thumbnailFile?: File | null }) =>
     request<void>(`/api/admin/categories/${categoryId}`, {
       method: "PUT",
       token,
@@ -533,6 +601,32 @@ export const api = {
       method: "POST",
       token,
       body: createProductFormData(payload)
+    }),
+  adminProducts: (token: string, page = 0, size = 100) =>
+    request<PageResponse<AdminProductSearchResponse>>(`/api/admin/products?page=${page}&size=${size}`, { token }),
+  adminProduct: (token: string, productId: number) =>
+    request<AdminProductDetailResponse>(`/api/admin/products/${productId}`, { token }),
+  updateProduct: (token: string, productId: number, payload: ProductUpdatePayload) =>
+    request<void>(`/api/admin/products/${productId}`, {
+      method: "PUT",
+      token,
+      body: createProductFormData(payload)
+    }),
+  deleteProduct: (token: string, productId: number) =>
+    request<void>(`/api/admin/products/${productId}`, {
+      method: "DELETE",
+      token
+    }),
+  updateProductStatus: (token: string, productId: number, status: ProductStatus) =>
+    request<void>(`/api/admin/products/${productId}/status`, {
+      method: "PATCH",
+      token,
+      body: JSON.stringify({ status })
+    }),
+  setMainProduct: (token: string, productId: number) =>
+    request<void>(`/api/admin/products/${productId}/main`, {
+      method: "PATCH",
+      token
     }),
   lessons: () => request<LessonResponse[]>("/api/lessons"),
   lessonPolicy: () => request<LessonPolicyResponse>("/api/lessons/policy"),
@@ -594,6 +688,48 @@ export const api = {
   adminDashboard: (token: string) => request<AdminDashboardResponse>("/api/admin/dashboard", { token }),
   adminOrders: (token: string, page = 0, size = 20) =>
     request<PageResponse<AdminOrderSearchResponse>>(`/api/admin/orders?page=${page}&size=${size}`, { token }),
+  adminOrder: (token: string, orderNumber: string) =>
+    request<AdminOrderDetailResponse>(`/api/admin/orders/${orderNumber}`, { token }),
+  updateAdminOrderStatus: (token: string, orderNumber: string, action: "indelivery" | "delivered" | "complete" | "cancel") =>
+    request<void>(`/api/admin/orders/${orderNumber}/${action}`, {
+      method: "PATCH",
+      token
+    }),
   adminUsers: (token: string, page = 0, size = 20) =>
-    request<PageResponse<AdminUserSearchResponse>>(`/api/admin/users?page=${page}&size=${size}`, { token })
+    request<PageResponse<AdminUserSearchResponse>>(`/api/admin/users?page=${page}&size=${size}`, { token }),
+  updateAdminUserRole: (token: string, userId: number, role: Role) =>
+    request<AdminUserDetailResponse>(`/api/admin/users/${userId}/role`, {
+      method: "PATCH",
+      token,
+      body: JSON.stringify({ role })
+    }),
+  updateAdminUserBlacklist: (token: string, userId: number, blacklisted: boolean) =>
+    request<AdminUserDetailResponse>(`/api/admin/users/${userId}/blacklist`, {
+      method: "PATCH",
+      token,
+      body: JSON.stringify({ blacklisted })
+    }),
+  shippingPolicies: (token: string) => request<ShippingPolicyResponse[]>("/api/admin/shipping-policies", { token }),
+  createShippingPolicy: (token: string, payload: ShippingPolicyPayload) =>
+    request<ShippingPolicyResponse>("/api/admin/shipping-policies", {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload)
+    }),
+  updateShippingPolicy: (token: string, shippingPolicyId: number, payload: ShippingPolicyPayload) =>
+    request<ShippingPolicyResponse>(`/api/admin/shipping-policies/${shippingPolicyId}`, {
+      method: "PUT",
+      token,
+      body: JSON.stringify(payload)
+    }),
+  activateShippingPolicy: (token: string, shippingPolicyId: number) =>
+    request<ShippingPolicyResponse>(`/api/admin/shipping-policies/${shippingPolicyId}/active`, {
+      method: "PATCH",
+      token
+    }),
+  deleteShippingPolicy: (token: string, shippingPolicyId: number) =>
+    request<void>(`/api/admin/shipping-policies/${shippingPolicyId}`, {
+      method: "DELETE",
+      token
+    })
 };

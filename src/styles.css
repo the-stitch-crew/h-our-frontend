@@ -796,6 +796,10 @@ img {
   background: transparent;
 }
 
+.text-button.danger {
+  color: var(--danger);
+}
+
 .primary-button,
 .outline-button {
   display: inline-flex;
@@ -2122,6 +2126,20 @@ label {
   background: rgba(243, 234, 219, 0.32);
 }
 
+.admin-form-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-form-heading strong {
+  font-size: 18px;
+}
+
+.admin-form-heading span {
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
 .admin-inline-form.compact {
   grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.58fr) minmax(120px, 0.58fr) auto;
   align-items: end;
@@ -2240,14 +2258,56 @@ label {
 .reservation-status-actions,
 .table-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
 
-.reservation-status-actions select {
+.reservation-status-actions select,
+.table-actions select {
   min-height: 38px;
   width: 132px;
   padding: 8px 10px;
+}
+
+.admin-detail-row td {
+  background: rgba(243, 234, 219, 0.22);
+  white-space: normal;
+}
+
+.admin-detail-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+}
+
+.admin-detail-panel div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-detail-panel strong {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.admin-detail-panel span {
+  min-width: 0;
+  white-space: normal;
+}
+
+.admin-detail-wide {
+  grid-column: 1 / -1;
+}
+
+.checkbox-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  background: #fff;
 }
 
 .lesson-admin-table {
